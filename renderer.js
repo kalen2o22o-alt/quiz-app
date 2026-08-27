@@ -1,12 +1,37 @@
 (function(){
-  // 题库拆分：优先用独立文件（bank_chapters / bank_papers / meta），回退到旧 data.js
+  // 题库拆分：优先用独立文件（bank_chapters / bank_papers / meta），回退到旧 data.js。
+  // BANK_* 现为多科目结构 {subjId: {...}}：取「当前科目」的题库；兼容旧单科目结构。
+  function __bankSubj__(){
+    let s = 'accounting';
+    try{ s = localStorage.getItem('cpa-subject') || 'accounting'; }catch(e){}
+    return s;
+  }
   const APP = Object.assign(
     {},
     window.APP_DATA || {},
     window.APP_META || {},
     {
-      chapters: (window.BANK_CHAPTERS != null) ? window.BANK_CHAPTERS : ((window.APP_DATA && window.APP_DATA.chapters) || {}),
-      papers:   (window.BANK_PAPERS   != null) ? window.BANK_PAPERS   : ((window.APP_DATA && window.APP_DATA.papers)   || [])
+      subject: (function(){
+        const s = __bankSubj__();
+        const meta = window.APP_META;
+        if(meta && Array.isArray(meta.subjects)){
+          const sm = meta.subjects.find(x => x.id === s);
+          if(sm && sm.name) return sm.name;
+        }
+        return (window.APP_META && window.APP_META.subject) || '会计';
+      })(),
+      chapters: (function(){
+        const b = window.BANK_CHAPTERS;
+        if(b == null) return (window.APP_DATA && window.APP_DATA.chapters) || {};
+        const s = __bankSubj__();
+        return (b[s] != null) ? b[s] : b;
+      })(),
+      papers: (function(){
+        const b = window.BANK_PAPERS;
+        if(b == null) return (window.APP_DATA && window.APP_DATA.papers) || [];
+        const s = __bankSubj__();
+        return (b[s] != null) ? b[s] : b;
+      })()
     }
   );
   let subjects = APP.subjects || [];
