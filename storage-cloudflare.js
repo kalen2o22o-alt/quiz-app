@@ -57,8 +57,13 @@
 
   async function unlock(){
     if(!cfg.requirePassphrase) return;
+    // 同一浏览器记住口令（存哈希，非明文）：只输一次，刷新/重开自动解锁
+    var saved = null;
+    try { saved = localStorage.getItem('quiz_cf_ns'); } catch(e) {}
+    if(saved){ nsSeed = saved; return; }
     var pw = await askPassphrase();
     nsSeed = await sha256Hex('cpa-quiz::' + pw);
+    try { localStorage.setItem('quiz_cf_ns', nsSeed); } catch(e) {}
   }
 
   function baseUrl(){ return (apiBase || '') + '/api'; }
