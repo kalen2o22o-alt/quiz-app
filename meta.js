@@ -1,0 +1,1 @@
+window.APP_META = {"subject":"会计","subjects":[{"id":"accounting","name":"会计","hasData":true},{"id":"finance","name":"财务成本管理","hasData":true},{"id":"economics","name":"经济法","hasData":true},{"id":"tax","name":"税法","hasData":true}],"answerStatus":"complete","verifiedCount":1379};
