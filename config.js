@@ -12,3 +12,15 @@
 // 填上云端地址即可（此时本地页面数据将直接读写云端，不再经过本地 data/）：
 // window.__CLOUDFLARE_CONFIG__ = { apiBase: 'https://quiz-app-1iy.pages.dev', requirePassphrase: true };
 // ============================================================
+
+
+// 自动检测：部署在 Cloudflare Pages 等线上环境时，自动启用云端存储
+(function(){
+  if (typeof window !== 'undefined' && !window.__CLOUDFLARE_CONFIG__) {
+    var host = location.hostname || '';
+    // 线上域名（pages.dev / 自定义域名）自动启用云端模式
+    if (host.indexOf('pages.dev') >= 0 || host.indexOf('quiz-app') >= 0) {
+      window.__CLOUDFLARE_CONFIG__ = { apiBase: '', requirePassphrase: true };
+    }
+  }
+})();
