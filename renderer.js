@@ -1,4 +1,4 @@
-(function(){
+﻿(function(){
   // 题库拆分：优先用独立文件（bank_chapters / bank_papers / meta），回退到旧 data.js。
   // BANK_* 现为多科目结构 {subjId: {...}}：取「当前科目」的题库；兼容旧单科目结构。
   function __bankSubj__(){
@@ -29,6 +29,12 @@
       papers: (function(){
         const b = window.BANK_PAPERS;
         if(b == null) return (window.APP_DATA && window.APP_DATA.papers) || [];
+        const s = __bankSubj__();
+        return (b[s] != null) ? b[s] : b;
+      })(),
+      intensivePapers: (function(){
+        const b = window.BANK_INTENSIVE;
+        if(b == null) return [];
         const s = __bankSubj__();
         return (b[s] != null) ? b[s] : b;
       })()
@@ -75,7 +81,7 @@
   // 仅题干括号、无平台答案的题(第1-12关)仍待校验，正确率显示 —
   function isVerified(q){ return q.verified === true; }
   // 题型：客观题由系统自动判分；主观题需用户手动判分，不自动计入错题
-  function isObjective(q){ return q && ['single','multi','judge'].includes(q.type); }
+  function isObjective(q){ return q && ['single','multi','multiple','judge'].includes(q.type); }
   function isSubjective(q){ return q && !isObjective(q); }
   // 错题判定：客观题自动判定；主观题仅当用户手动判为 wrong 时才计入错题
   // 错题/正确判定：以「历史所有练习会话中的最近一次作答」为准，
@@ -83,7 +89,7 @@
   function isHistoricalWrong(q){
     if(!isVerified(q) || !isObjective(q)) return false;
     const ans = getLastAnswerFor(q._uid);
-    return !!(ans && ans !== q.answer);
+    return !!(ans && normAns(ans) !== normAns(q.answer));
   }
   function isAutoWrong(q){ return isHistoricalWrong(q); } // 兼容旧名
   // 该题是否曾在【已交卷】session 中出现过作答：错题/手动判分只认已交卷记录，
@@ -97,14 +103,15 @@
     }
     return false;
   }
-  function isManualWrong(q){ if(!q || !hasSubmittedAnswer(q._uid)) return false; const g = getManualGrade(q._uid); return !!(g && g.state === 'wrong'); }
+  function isManualWrong(q){ if(!q) return false; const uid = q._uid || q.uid; if(!hasSubmittedAnswer(uid)) return false; const g = getManualGrade(uid); return !!(g && g.state === 'wrong'); }
   function isWrong(q){ return isHistoricalWrong(q) || isManualWrong(q); }
   function isHistoricalCorrect(q){
     if(!isVerified(q) || !isObjective(q)) return false;
-    const ans = getLastAnswerFor(q._uid);
-    return !!(ans && ans === q.answer);
+    const uid = q._uid || q.uid;
+    const ans = getLastAnswerFor(uid);
+    return !!(ans && normAns(ans) === normAns(q.answer));
   }
-  function isManualCorrect(q){ if(!q || !hasSubmittedAnswer(q._uid)) return false; const g = getManualGrade(q._uid); return !!(g && g.state === 'correct'); }
+  function isManualCorrect(q){ if(!q) return false; const uid = q._uid || q.uid; if(!hasSubmittedAnswer(uid)) return false; const g = getManualGrade(uid); return !!(g && g.state === 'correct'); }
   function isCorrect(q){ return isHistoricalCorrect(q) || isManualCorrect(q); }
 
   // ===== 方案二（文件仓版）存储后端 =====
@@ -119,12 +126,14 @@
     'sessions_': 'history',
     'manual_grades_': 'wrong',
     'wrong_mastered_': 'wrong',
+    'wrong_list_': 'wrong',
     'favorites_': 'favorites',
+    'error_corrected_': 'error_corrected',
     'notes_': 'notes',
     'answers_': 'answers',
-    'current_session_': 'answers',
-    'drafts_': 'answers',
-    'practice_state_': 'answers',
+    'current_session_': 'drafts',
+    'drafts_': 'drafts',
+    'practice_state_': 'drafts',
   };
   function __fileOfKey__(k){
     for(const p in __FILE_MAP__){ if(k.indexOf(p) === 0) return __FILE_MAP__[p]; }
@@ -132,7 +141,7 @@
   }
   // 旧版数据 key 用中文科目名做后缀（如 sessions_会计），新统一为科目 id（sessions_accounting）
   const SUBJ_NAME_TO_ID = { '会计':'accounting','审计':'auditing','财管':'finance','税法':'tax','经济法':'economics','战略':'strategy' };
-  const __fileCache__ = { history:{}, wrong:{}, favorites:{}, notes:{}, answers:{} };
+  const __fileCache__ = { history:{}, wrong:{}, favorites:{}, error_corrected:{}, notes:{}, answers:{}, drafts:{} };
   let __dirty__ = {};
   let __flushTimer__ = null;
   function __flushAll__(keepalive){
@@ -144,13 +153,41 @@
       __dirty__ = {};
       return;
     }
-    files.forEach(f => {
+    const failed = [];
+    const promises = files.map(f => {
       try{
         const body = JSON.stringify(__fileCache__[f] || {}, null, 2);
-        fetch('/api/data/' + getSubject() + '/' + f + '.json', { method:'PUT', headers:{'Content-Type':'application/json'}, body: body, keepalive: !!keepalive }).catch(()=>{});
-      }catch(e){}
+        return fetch('/api/data/' + getSubject() + '/' + f + '.json', { method:'PUT', headers:{'Content-Type':'application/json'}, body: body, keepalive: !!keepalive })
+          .then(r => { if(!r.ok) failed.push(f); })
+          .catch(() => { failed.push(f); });
+      }catch(e){ failed.push(f); return Promise.resolve(); }
     });
-    __dirty__ = {};
+    Promise.all(promises).then(() => {
+      // 所有请求完成后，统一处理dirty：成功的清除，失败的保留
+      files.forEach(f => {
+        if(failed.includes(f)){
+          __dirty__[f] = true; // 失败的保留，下次重试
+        }else{
+          delete __dirty__[f]; // 成功的清除
+        }
+      });
+      if(failed.length){
+        console.warn('[quiz] 写盘失败，保留待重试:', failed);
+        // 显示提示
+        try{
+          let tip = document.getElementById('__save_fail_tip__');
+          if(!tip){
+            tip = document.createElement('div');
+            tip.id = '__save_fail_tip__';
+            tip.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;background:#C03B2B;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);';
+            tip.title = '点击重试';
+            document.body.appendChild(tip);
+          }
+          tip.textContent = '⚠ 数据未保存（' + failed.length + '个文件），点击重试';
+          tip.onclick = () => { tip.remove(); __flushAll__(false); };
+        }catch(e){}
+      }
+    });
   }
   function __scheduleFlush__(file){
     if(!__SERVER_MODE__) return; // 文件模式不写服务器
@@ -219,13 +256,27 @@
     const lines = esc.split('\n');
     const out = [];
     let i = 0;
+    const isBlank = l => l.replace(/\u00a0/g,' ').trim() === '';
+    const hasTab = l => l.indexOf('\t') >= 0;
     while(i < lines.length){
       const line = lines[i];
-      if(line.indexOf('\t') >= 0){
+      if(hasTab(line)){
         const block = [];
-        while(i < lines.length && lines[i].indexOf('\t') >= 0){ block.push(lines[i]); i++; }
-        if(block.length >= 2){
-          const rows = block.map(r => r.split('\t').map(c => (c.replace(/\u00a0/g, ' ').trim() || '&nbsp;')));
+        // 收集含\t的行，允许中间夹空行（空行前后都有含\t的行时纳入）
+        while(i < lines.length){
+          if(hasTab(lines[i])){ block.push(lines[i]); i++; }
+          else if(isBlank(lines[i])){
+            // 向后看是否还有含\t的行
+            let j = i + 1;
+            while(j < lines.length && isBlank(lines[j])) j++;
+            if(j < lines.length && hasTab(lines[j])){ block.push(lines[i]); i++; }
+            else break;
+          }
+          else break;
+        }
+        const tabRows = block.filter(hasTab);
+        if(tabRows.length >= 2){
+          const rows = tabRows.map(r => r.split('\t').map(c => (c.replace(/\u00a0/g, ' ').trim() || '&nbsp;')));
           const ncol = Math.max.apply(null, rows.map(r => r.length));
           const html = rows.map((r, ri) => {
             while(r.length < ncol) r.push('&nbsp;');
@@ -245,7 +296,29 @@
   }
   // 题目显示号：主观多问大题 -> “26-1 / 26-2”；单题 -> 连续编号
   function qNo(q, idx){
-    if(q && q.parentNo) return q.subNo ? (q.parentNo + '-' + q.subNo) : String(q.parentNo);
+    if(!q) return String((idx == null ? 0 : idx) + 1);
+    // 仅在做题页面（practiceQuestions 已初始化且包含此题）使用题型内编号
+    if(typeof practiceQuestions !== 'undefined' && Array.isArray(practiceQuestions) && practiceQuestions.indexOf(q) >= 0){
+      const isSubj = q.type === 'subjective';
+      const ptype = q.ptype || q.type;
+      // 筛选同题型题目
+      const typeList = practiceQuestions.filter(qq => {
+        if(isSubj) return qq.type === 'subjective' && (qq.ptype || qq.type) === ptype;
+        return qq.type === q.type;
+      });
+      if(isSubj && q.parentNo){
+        // 主观题：大题号在当前题型内从1开始
+        const parentNos = [];
+        typeList.forEach(qq => { if(qq.parentNo && parentNos.indexOf(qq.parentNo) < 0) parentNos.push(qq.parentNo); });
+        const parentIdx = parentNos.indexOf(q.parentNo) + 1;
+        return q.subNo ? (parentIdx + '-' + q.subNo) : String(parentIdx);
+      }
+      // 客观题：题型内从1开始连续编号
+      const typeIdx = typeList.indexOf(q) + 1;
+      if(typeIdx > 0) return String(typeIdx);
+    }
+    // 回退：历史记录等其他场景
+    if(q.parentNo) return q.subNo ? (q.parentNo + '-' + q.subNo) : String(q.parentNo);
     return String((idx == null ? 0 : idx) + 1);
   }
   // ---- 左栏 / 右栏可拖动调整宽度 + 各自可折叠（分条独立成列，内含折叠按钮） ----
@@ -272,18 +345,13 @@
     sp.dataset.dragBound = '1';
     sp.addEventListener('mousedown', onSplitterDown);
   }
-  function ensureSplitter(){
+  // 响应式布局：窄屏自动折叠右栏，宽屏自动展开（用户手动折叠的不受影响）
+  let __userManuallyToggledRight = false;
+  function applyResponsiveLayout(){
+    const shouldCollapse = window.innerWidth <= 1279;
     document.querySelectorAll('.cols').forEach(cols => {
-      const right = cols.querySelector(':scope > .col-right');
-      let sr = right && cols.querySelector(':scope > .v-splitter[data-side="right"]');
-      if(right && !sr){ sr = makeSplitterElement('right'); right.before(sr); }
-      bindSplitterDrag(sr);
-    });
-    // 窄屏（≤1279px，如笔记本窗口/系统缩放）默认折叠右侧栏：分隔条常驻可见，
-    // 但右栏解析内容不再占横向空间，用户可点右分隔条按钮随时展开。
-    if(window.innerWidth <= 1279){
-      document.querySelectorAll('.cols').forEach(cols => {
-        if(cols.classList.contains('right-collapsed')) return;
+      const isCollapsed = cols.classList.contains('right-collapsed');
+      if(shouldCollapse && !isCollapsed && !__userManuallyToggledRight){
         cols.classList.add('right-collapsed');
         const btn = cols.querySelector('.v-splitter[data-side="right"] .col-toggle');
         if(btn){
@@ -291,9 +359,36 @@
           if(path) path.setAttribute('d','M9 6l6 6-6 6');
           btn.title = '显示右侧栏';
         }
-      });
-    }
+      } else if(!shouldCollapse && isCollapsed && !__userManuallyToggledRight){
+        cols.classList.remove('right-collapsed');
+        const btn = cols.querySelector('.v-splitter[data-side="right"] .col-toggle');
+        if(btn){
+          const path = btn.querySelector('svg path');
+          if(path) path.setAttribute('d','M15 6l-6 6 6 6');
+          btn.title = '隐藏右侧栏';
+        }
+      }
+    });
   }
+  function ensureSplitter(){
+    // 只在答题卡页面(practice视图且非选卷模式)创建分隔条和折叠按钮
+    if(getCurrentView() !== 'practice') return;
+    const isSelectMode = /[?&]mode=select/.test(location.hash) || /[?&]mode=select/.test(location.search);
+    if(isSelectMode) return;
+    document.querySelectorAll('.cols').forEach(cols => {
+      const right = cols.querySelector(':scope > .col-right');
+      let sr = right && cols.querySelector(':scope > .v-splitter[data-side="right"]');
+      if(right && !sr){ sr = makeSplitterElement('right'); right.before(sr); }
+      bindSplitterDrag(sr);
+    });
+    applyResponsiveLayout();
+  }
+  // 窗口大小变化时自动调整布局（防抖150ms）
+  let __resizeTimer = null;
+  window.addEventListener('resize', () => {
+    if(__resizeTimer) clearTimeout(__resizeTimer);
+    __resizeTimer = setTimeout(applyResponsiveLayout, 150);
+  });
   // 折叠/展开左栏或右栏；按钮图标随状态切换（栏隐藏后显示展开箭头）
   function toggleSidePanel(side){
     const cols = document.querySelector('.cols');
@@ -303,7 +398,12 @@
     const willHide = !cols.classList.contains(cls);
     cols.classList.toggle(cls, willHide);
     if(isLeft) document.body.classList.toggle('left-collapsed', willHide);
-    const btn = cols.querySelector('.v-splitter[data-side="' + side + '"] .col-toggle');
+    // 用户手动操作右栏后，resize时不再自动切换
+    if(!isLeft) __userManuallyToggledRight = true;
+    // 左栏按钮：.col-toggle-mini；右栏按钮：.v-splitter .col-toggle
+    const btn = isLeft
+      ? cols.querySelector('.col-toggle-mini')
+      : cols.querySelector('.v-splitter[data-side="right"] .col-toggle');
     if(btn){
       const path = btn.querySelector('svg path');
       if(path){
@@ -311,6 +411,33 @@
         else      { path.setAttribute('d', willHide ? 'M15 6l-6 6 6 6' : 'M9 6l6 6-6 6'); }
       }
       btn.title = willHide ? (isLeft ? '显示左侧栏' : '显示右侧栏') : (isLeft ? '隐藏左侧栏' : '隐藏右侧栏');
+    }
+  }
+  // 动态更新左右栏折叠按钮的fixed位置（根据栏实际宽度）
+  function updateTogglePositions(){
+    const cols = document.querySelector('.cols');
+    if(!cols) return;
+    const leftBtn = cols.querySelector('.col-toggle-mini');
+    const rightBtn = cols.querySelector('.v-splitter[data-side="right"] .col-toggle');
+    const leftCollapsed = cols.classList.contains('left-collapsed');
+    const rightCollapsed = cols.classList.contains('right-collapsed');
+    if(leftBtn){
+      if(leftCollapsed){
+        leftBtn.style.left = '0px';
+      } else {
+        const colLeft = cols.querySelector('.col-left');
+        const w = colLeft ? colLeft.offsetWidth : 252;
+        leftBtn.style.left = w + 'px';
+      }
+    }
+    if(rightBtn){
+      if(rightCollapsed){
+        rightBtn.style.right = '0px';
+      } else {
+        const colRight = cols.querySelector('.col-right');
+        const w = colRight ? colRight.offsetWidth : 380;
+        rightBtn.style.right = w + 'px';
+      }
     }
   }
   // 左栏收起后的悬浮展开按钮（常驻 body，折叠时显示；左分隔条已移除）
@@ -327,7 +454,6 @@
     document.body.appendChild(f);
   }
   function initSidePanelToggles(){
-    ensureLeftToggleFloat();
     document.addEventListener('click', e => {
       const btn = e.target.closest('.col-toggle, .left-toggle-float');
       if(btn) toggleSidePanel(btn.dataset.side === 'left' ? 'left' : 'right');
@@ -336,6 +462,7 @@
     document.addEventListener('mousedown', e => {
       if(e.target.closest('.col-toggle')){ e.stopPropagation(); e.preventDefault(); }
     }, true);
+
   }
   function onSplitterDown(e){
     e.preventDefault();
@@ -373,9 +500,16 @@
     document.addEventListener('mouseup', up);
     document.body.classList.add('resizing-split');
   }
-  // 冲刺模考·套卷取题：按 paperId 从 APP.papers 取整套卷，赋予稳定 _uid 以便跨页作答同步
+  // 套卷取题：按 paperId 从对应题库取整套卷（冲刺模考用APP.papers，强化训练用BANK_INTENSIVE），赋予稳定 _uid 以便跨页作答同步
   function getPaperQuestions(paperId){
-    const paper = (APP.papers || []).find(p => p.id === paperId);
+    let paper = null;
+    if(Array.isArray(APP.papers)) paper = APP.papers.find(p => p.id === paperId);
+    if(!paper && window.BANK_INTENSIVE){
+      const b = window.BANK_INTENSIVE;
+      const s = __bankSubj__();
+      const bank = (b[s] != null) ? b[s] : b;
+      paper = (bank || []).find(p => p.id === paperId);
+    }
     if(!paper) return [];
     const qs = (paper.questions || []).map((q, qi) => {
       q._uid = 'paper:' + paperId + '::' + qi;
@@ -422,20 +556,110 @@
     return {};
   }
   function globalFavoritesKey(){ return 'favorites_' + getSubject(); }
+  // 收藏结构：对象数组 {uid, chapter, section, type, raw_type, stem, options, answer, analysis, savedAt}
+  // 兼容旧版：纯 uid 字符串数组（读取时自动从题库补全题目）
   function getFavorites(){
-    try{ const raw = store.get(globalFavoritesKey()); if(raw){ const arr = JSON.parse(raw); if(Array.isArray(arr)) return new Set(arr); } }catch(e){}
-    return new Set();
+    try{
+      const raw = store.get(globalFavoritesKey());
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr)){
+          const map = new Map();
+          arr.forEach(item => {
+            if(typeof item === 'string'){
+              // 旧版 uid：从题库补全
+              const q = getQuestions().find(x => x._uid === item);
+              if(q) map.set(item, favSnap(q));
+            } else if(item && item.uid){
+              map.set(item.uid, item);
+            }
+          });
+          return map;
+        }
+      }
+    }catch(e){}
+    return new Map();
   }
-  function addFavorite(uid){ const set = getFavorites(); set.add(uid); try{ store.set(globalFavoritesKey(), JSON.stringify([...set])); }catch(e){} }
-  function removeFavorite(uid){ const set = getFavorites(); set.delete(uid); try{ store.set(globalFavoritesKey(), JSON.stringify([...set])); }catch(e){} }
+  function favSnap(q){
+    return {
+      uid: q._uid || '',
+      chapter: q.chapter || '',
+      section: q.section || '',
+      type: q.type || '',
+      raw_type: q.raw_type || '',
+      stem: q.stem || '',
+      options: q.options || [],
+      answer: q.answer || '',
+      analysis: q.analysis || '',
+      savedAt: Date.now()
+    };
+  }
+  function addFavorite(uid, q){
+    const map = getFavorites();
+    if(q && q._uid) map.set(q._uid, favSnap(q));
+    else if(uid) map.set(uid, { uid, savedAt: Date.now() });
+    try{ store.set(globalFavoritesKey(), JSON.stringify([...map.values()])); }catch(e){}
+  }
+  function removeFavorite(uid){ const map = getFavorites(); map.delete(uid); try{ store.set(globalFavoritesKey(), JSON.stringify([...map.values()])); }catch(e){} }
   function isFavorite(uid){ return getFavorites().has(uid); }
+
+  // 纠错功能：全局保存，按科目单独存储
+  function globalErrorCorrectedKey(){ return 'error_corrected_' + getSubject(); }
+  // 纠错结构：对象数组 {uid, chapter, section, type, raw_type, stem, options, answer, analysis, savedAt}
+  function getErrorCorrected(){
+    try{
+      const raw = store.get(globalErrorCorrectedKey());
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr)){
+          const map = new Map();
+          arr.forEach(item => {
+            if(typeof item === 'string'){
+              const q = getQuestions().find(x => x._uid === item);
+              if(q) map.set(item, errorSnap(q));
+            } else if(item && item.uid){
+              map.set(item.uid, item);
+            }
+          });
+          return map;
+        }
+      }
+    }catch(e){}
+    return new Map();
+  }
+  function errorSnap(q){
+    return {
+      uid: q._uid || '',
+      chapter: q.chapter || '',
+      section: q.section || '',
+      type: q.type || '',
+      raw_type: q.raw_type || '',
+      stem: q.stem || '',
+      options: q.options || [],
+      answer: q.answer || '',
+      analysis: q.analysis || '',
+      savedAt: Date.now()
+    };
+  }
+  function addErrorCorrected(uid, q){
+    const map = getErrorCorrected();
+    if(q && q._uid) map.set(q._uid, errorSnap(q));
+    else if(uid) map.set(uid, { uid, savedAt: Date.now() });
+    try{ store.set(globalErrorCorrectedKey(), JSON.stringify([...map.values()])); }catch(e){}
+  }
+  function removeErrorCorrected(uid){ const map = getErrorCorrected(); map.delete(uid); try{ store.set(globalErrorCorrectedKey(), JSON.stringify([...map.values()])); }catch(e){} }
+  function isErrorCorrected(uid){ return getErrorCorrected().has(uid); }
 
   // 主观题手动判分存储：{ [uid]: { state:'correct'|'wrong', score:number } }
   function manualGradesKey(){ return 'manual_grades_' + getSubject(); }
+  let __manualGradesCache__ = null;
   function getManualGrades(){
-    try{ const raw = store.get(manualGradesKey()); if(raw){ const obj = JSON.parse(raw); if(obj && typeof obj === 'object') return obj; } }catch(e){}
+    if(__manualGradesCache__ !== null) return __manualGradesCache__;
+    try{ const raw = store.get(manualGradesKey()); if(raw){ const obj = JSON.parse(raw); if(obj && typeof obj === 'object'){ __manualGradesCache__ = obj; return obj; } } }catch(e){}
+    __manualGradesCache__ = {};
     return {};
   }
+  function __invalidateManualGradesCache__(){ __manualGradesCache__ = null; }
   function saveManualGrades(obj){ try{ store.set(manualGradesKey(), JSON.stringify(obj || {})); }catch(e){} }
   function getManualGrade(uid){ return getManualGrades()[uid] || null; }
   function setManualGrade(uid, state, score){
@@ -447,8 +671,9 @@
       delete obj[uid];
     }
     saveManualGrades(obj);
+    __invalidateManualGradesCache__();
   }
-  function clearManualGrade(uid){ const obj = getManualGrades(); delete obj[uid]; saveManualGrades(obj); }
+  function clearManualGrade(uid){ const obj = getManualGrades(); delete obj[uid]; saveManualGrades(obj); __invalidateManualGradesCache__(); }
 
   // ============ 练习历史 Session 管理 ============
   // 每个训练都是一个独立 session：当前进行中的答案存在 answers_${subject}，
@@ -459,7 +684,7 @@
     try{ const raw = store.get(sessionsKey()); if(raw){ const arr = JSON.parse(raw); if(Array.isArray(arr)) return arr; } }catch(e){ console.warn('[quiz] 练习历史读取失败:', e); }
     return [];
   }
-  function saveSessions(arr){ try{ store.set(sessionsKey(), JSON.stringify(arr || [])); }catch(e){ console.warn('[quiz] 练习历史写入失败:', e); } }
+  function saveSessions(arr){ try{ store.set(sessionsKey(), JSON.stringify(arr || [])); }catch(e){ console.warn('[quiz] 练习历史写入失败:', e); } __invalidateHistAnswersCache__(); }
   function getCurrentSession(){
     try{ const raw = store.get(currentSessionKey()); if(raw){ const s = JSON.parse(raw); if(s && typeof s === 'object') return s; } }catch(e){}
     return null;
@@ -468,8 +693,8 @@
   function archiveCurrentSession(){
     const sess = getCurrentSession();
     if(!sess) return;
-    // 把当前实时答案合并进 session
-    try{ const raw = store.get(globalAnswersKey()); sess.answers = raw ? (JSON.parse(raw) || {}) : {}; }catch(e){ sess.answers = {}; }
+    // 保留session自己的answers（submitPaper已设置），不再用全局池覆盖
+    if(!sess.answers) sess.answers = {};
     sess.endTime = Date.now();
     const arr = getSessions();
     const idx = arr.findIndex(x => x.id === sess.id);
@@ -509,7 +734,9 @@
   // 合并所有【已交卷】session 的答案，返回 { [uid]: 最近一次作答 }
   // 口径：只统计已交卷训练（sessions_ 中 submitted=true）；未交卷/进行中作答不计入，
   // 与「只有交卷才生成练习历史」的规则保持一致。
+  let __histAnswersCache__ = null;
   function getHistoricalAnswersMap(){
+    if(__histAnswersCache__ !== null) return __histAnswersCache__;
     const all = [];
     getSessions().forEach(s => {
       if(s.submitted === true && s.answers && typeof s.answers === 'object') all.push({ t: s.endTime || s.startTime, m: s.answers });
@@ -518,8 +745,10 @@
     all.sort((a, b) => a.t - b.t);
     const map = {};
     all.forEach(it => { Object.keys(it.m).forEach(uid => { map[uid] = it.m[uid]; }); });
+    __histAnswersCache__ = map;
     return map;
   }
+  function __invalidateHistAnswersCache__(){ __histAnswersCache__ = null; }
   function getLastAnswerFor(uid){
     const map = getHistoricalAnswersMap();
     return uid ? (map[uid] || '') : '';
@@ -661,8 +890,16 @@
   function mottoSave(text){
     text = (text || '').trim(); if(!text) return;
     store.set('motto_text', text);
-    const arr = mottoHistory().filter(x => x && x.text !== text);
-    arr.unshift({ text: text, usedAt: todayStr() });
+    const now = todayStr();
+    const arr = mottoHistory();
+    const idx = arr.findIndex(x => x && x.text === text);
+    if(idx >= 0){
+      arr[idx].usedAt = now;
+      if(!arr[idx].createdAt) arr[idx].createdAt = now;
+      arr[idx].updatedAt = now;
+    } else {
+      arr.unshift({ text: text, usedAt: now, createdAt: now, updatedAt: now });
+    }
     arr.length = Math.min(arr.length, 20);
     store.set('motto_history', JSON.stringify(arr));
     const el = document.getElementById('motto-txt'); if(el) el.textContent = text;
@@ -708,9 +945,9 @@
         else mottoSave(row.getAttribute('data-text'));
       });
     } else {
-      p.innerHTML = '<h4>考试日期设置</h4>'
-        + EXAMS.map(ex => `<div class="date-row"><span class="nm">${zesc(ex.name)}</span><input type="date" data-ex="${ex.id}"></div>`).join('')
-        + '<div class="ops"><button class="lc-save" id="lc-date-save">保存</button></div>';
+      p.innerHTML = '<h4 id="date-pop-title">考试日期</h4>'
+        + '<div class="date-row"><input type="date" id="date-single-input"></div>'
+        + '<div class="ops"><button class="lc-save" id="lc-date-save">确认</button></div>';
       document.body.appendChild(p);
       const sd = document.getElementById('lc-date-save');
       if(sd) sd.addEventListener('click', saveExamDatesUI);
@@ -728,7 +965,12 @@
       if(inp){ inp.value = mottoText() === DEFAULT_MOTTO ? '' : mottoText(); inp.focus(); }
       renderMottoHist();
     } else {
-      p.querySelectorAll('input[type=date]').forEach(inp => { inp.value = getExamDateOf(EXAMS.find(e => e.id === inp.dataset.ex)); });
+      const exId = anchor ? anchor.getAttribute('data-exam') : null;
+      const ex = (EXAMS || []).find(e => e.id === exId) || (EXAMS || [])[0];
+      const title = p.querySelector('#date-pop-title');
+      if(title) title.textContent = ex.name + ' · 考试日期';
+      const inp = p.querySelector('#date-single-input');
+      if(inp){ inp.dataset.ex = ex.id; inp.value = getExamDateOf(ex); }
     }
     const r = anchor.getBoundingClientRect();
     const pw = id === 'motto-pop' ? 340 : 360;
@@ -856,25 +1098,62 @@
       stats.innerHTML = '<span>累计收录 <b>' + list.length + '</b> 条</span><span>最近使用 <b>' + zesc(u[0] || '—') + '</b></span>';
     }
     if(!grid) return;
-    if(!list.length){
-      grid.innerHTML = '<div class="rb-empty">还没有收录过语录 —— 在学习中心语录旁点 ✎ 输入保存后，会按使用日期收录到这里。</div>';
-      return;
+    const TRASH = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M6 7l1 13h10l1-13"/><path d="M10 11v6M14 11v6"/></svg>';
+    grid.innerHTML = '<div class="rb-list-card">'
+      + list.slice().sort((a,b) => String(a.createdAt || a.usedAt || '').localeCompare(String(b.createdAt || b.usedAt || ''))).map((o, i) => {
+        const isCur = o.text === mottoText();
+        const date = o.createdAt || o.usedAt || '—';
+        return '<div class="rb-row' + (isCur ? ' cur' : '') + '">'
+          + '<span class="rb-row-no">' + (i + 1) + '.</span>'
+          + '<label class="rb-check" title="勾选即选用为当前语录"><input type="checkbox"' + (isCur ? ' checked' : '') + ' data-t="' + zesc(o.text) + '"></label>'
+          + '<p class="rb-row-txt">' + zesc(o.text) + '</p>'
+          + '<span class="rb-row-date">' + zesc(date) + '</span>'
+          + '<button class="rb-row-edit" data-t="' + zesc(o.text) + '" type="button" title="修改语录">✎</button>'
+          + '<button class="rb-row-del" data-t="' + zesc(o.text) + '" type="button" title="删除语录">' + TRASH + '</button>'
+          + '</div>';
+      }).join('')
+      + '<div class="rb-row rb-newrow"><span class="rb-new-space"></span><div class="rb-new-box"><span class="rb-new-plus">＋</span><input class="rb-new-input" type="text" maxlength="50"></div><button class="rb-new-save" type="button" title="保存新增语录">✓</button></div>'
+      + '</div>';
+    grid.querySelectorAll('.rb-check input').forEach(cb => cb.addEventListener('change', () => {
+      if(cb.checked){ mottoSave(cb.getAttribute('data-t')); renderRedBook(); }
+    }));
+    grid.querySelectorAll('.rb-row-del').forEach(b => b.addEventListener('click', () => { mottoDelete(b.getAttribute('data-t')); renderRedBook(); }));
+    // 修改：点击 ✎ 后该行语录原地变为输入框，回车/失焦即保存（不弹窗）
+    grid.querySelectorAll('.rb-row-edit').forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const row = b.closest('.rb-row');
+      const txt = row.querySelector('.rb-row-txt');
+      if(!txt) return;
+      const old = b.getAttribute('data-t');
+      const inp = document.createElement('input');
+      inp.type = 'text'; inp.maxLength = 50; inp.className = 'rb-row-input'; inp.value = old;
+      txt.replaceWith(inp);
+      inp.focus();
+      let done = false;
+      function commit(){
+        if(done) return; done = true;
+        const val = inp.value.trim();
+        if(val && val !== old){ mottoDelete(old); mottoSave(val); }
+        renderRedBook();
+      }
+      inp.addEventListener('keydown', ev => { if(ev.key === 'Enter') commit(); else if(ev.key === 'Escape') renderRedBook(); });
+      inp.addEventListener('blur', commit);
+    }));
+    // 底部空行新增语录：＋号居中占位，回车或点「保存」新增后自动再生成空行
+    const newRow = grid.querySelector('.rb-newrow');
+    if(newRow){
+      const ni = newRow.querySelector('.rb-new-input');
+      const plus = newRow.querySelector('.rb-new-plus');
+      const save = newRow.querySelector('.rb-new-save');
+      function syncPlus(){ if(plus) plus.style.visibility = ni.value ? 'hidden' : 'visible'; }
+      if(ni) ni.addEventListener('input', syncPlus);
+      function addNew(){
+        const v = ni.value.trim();
+        if(v){ mottoSave(v); renderRedBook(); }
+      }
+      if(ni) ni.addEventListener('keydown', ev => { if(ev.key === 'Enter') addNew(); });
+      if(save) save.addEventListener('click', addNew);
     }
-    grid.innerHTML = list.slice(0, 40).map((o, i) => {
-      const isCur = o.text === mottoText();
-      return '<div class="rb-card' + (isCur ? ' used' : '') + '">'
-        + '<div class="rb-card-no">#' + (i + 1) + '</div>'
-        + '<p class="rb-card-txt">' + zesc(o.text) + '</p>'
-        + '<div class="rb-card-foot">'
-        + '<span class="rb-card-date">' + zesc(o.usedAt || '—') + '</span>'
-        + (isCur
-            ? '<span class="rb-card-cur">当前</span>'
-            : '<button class="rb-use" data-t="' + zesc(o.text) + '" type="button">选用</button>')
-        + '<button class="rb-del" data-t="' + zesc(o.text) + '" type="button" title="从语录明细中删除">✕</button>'
-        + '</div></div>';
-    }).join('');
-    grid.querySelectorAll('.rb-use').forEach(b => b.addEventListener('click', () => { mottoSave(b.getAttribute('data-t')); renderRedBook(); }));
-    grid.querySelectorAll('.rb-del').forEach(b => b.addEventListener('click', () => { mottoDelete(b.getAttribute('data-t')); renderRedBook(); }));
   }
 
   // ============ Dashboard（保留，历史视图未再使用） ============
@@ -1102,6 +1381,111 @@
     }
   }
 
+  // ============ 章节页搜索：匹配文字加重高亮并跳转到所在行 ============
+  function clearChapterSearch(){
+    document.querySelectorAll('.ch-search-hl').forEach(el => el.classList.remove('ch-search-hl'));
+    document.querySelectorAll('mark.ch-search-mark').forEach(m => {
+      const p = m.parentNode;
+      if(p){ p.replaceChild(document.createTextNode(m.textContent), m); p.normalize(); }
+    });
+  }
+  function markText(el, kw){
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while(walker.nextNode()){ if(walker.currentNode.textContent.indexOf(kw) > -1) nodes.push(walker.currentNode); }
+    nodes.forEach(node => {
+      const idx = node.textContent.indexOf(kw);
+      if(idx === -1) return;
+      const frag = document.createDocumentFragment();
+      frag.appendChild(document.createTextNode(node.textContent.slice(0, idx)));
+      const m = document.createElement('mark'); m.className = 'ch-search-mark'; m.textContent = node.textContent.slice(idx, idx + kw.length);
+      frag.appendChild(m);
+      frag.appendChild(document.createTextNode(node.textContent.slice(idx + kw.length)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+  function searchChapters(kw){
+    clearChapterSearch();
+    if(!kw) return;
+    const list = document.querySelector('.ch-list');
+    if(!list) return;
+    let first = null;
+    list.querySelectorAll('.ch-item').forEach(item => {
+      let hit = false;
+      const title = item.querySelector('.ch-title');
+      if(title && title.textContent.indexOf(kw) > -1){ hit = true; markText(title, kw); }
+      item.querySelectorAll('.sub-name .t').forEach(t => { if(t.textContent.indexOf(kw) > -1){ hit = true; markText(t, kw); } });
+      if(hit){ item.classList.add('ch-search-hl'); if(!first) first = item; }
+    });
+    if(first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function initChapterSearch(){
+    const box = document.getElementById('tb-search');
+    if(!box || box.dataset.bound) return;
+    box.dataset.bound = '1';
+    box.addEventListener('input', () => searchChapters(box.value.trim()));
+    box.addEventListener('keydown', e => { if(e.key === 'Escape'){ box.value = ''; searchChapters(''); box.blur(); } });
+  }
+
+  // ============ 通用页面搜索（错题/收藏/历史/笔记/冲刺模考） ============
+  function clearPageSearch(){
+    document.querySelectorAll('.page-search-hl').forEach(el => el.classList.remove('page-search-hl'));
+    document.querySelectorAll('mark.page-search-mark').forEach(m => {
+      const p = m.parentNode;
+      if(p){ p.replaceChild(document.createTextNode(m.textContent), m); p.normalize(); }
+    });
+  }
+  function markPageText(el, kw){
+    const walker = document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+    const nodes = [];
+    while(walker.nextNode()){ if(walker.currentNode.textContent.indexOf(kw) > -1) nodes.push(walker.currentNode); }
+    nodes.forEach(node => {
+      const idx = node.textContent.indexOf(kw);
+      if(idx === -1) return;
+      const frag = document.createDocumentFragment();
+      frag.appendChild(document.createTextNode(node.textContent.slice(0, idx)));
+      const m = document.createElement('mark'); m.className = 'page-search-mark'; m.textContent = node.textContent.slice(idx, idx + kw.length);
+      frag.appendChild(m);
+      frag.appendChild(document.createTextNode(node.textContent.slice(idx + kw.length)));
+      node.parentNode.replaceChild(frag, node);
+    });
+  }
+  function searchPageRows(kw, containerSel, rowSel){
+    clearPageSearch();
+    if(!kw) return;
+    const c = document.querySelector(containerSel);
+    if(!c) return;
+    let first = null;
+    c.querySelectorAll(rowSel).forEach(row => {
+      if(row.textContent.indexOf(kw) > -1){
+        row.classList.add('page-search-hl');
+        markPageText(row, kw);
+        if(!first) first = row;
+      }
+    });
+    if(first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+  function bindPageSearch(boxId, containerSel, rowSel){
+    const box = document.getElementById(boxId);
+    if(!box || box.dataset.bound) return;
+    box.dataset.bound = '1';
+    box.addEventListener('input', () => searchPageRows(box.value.trim(), containerSel, rowSel));
+    box.addEventListener('keydown', e => { if(e.key === 'Escape'){ box.value = ''; searchPageRows('', containerSel, rowSel); box.blur(); } });
+  }
+  function initAllPageSearch(){
+    bindPageSearch('tb-search-wrong', '#wq-list', '.wq');
+    bindPageSearch('tb-search-fav', '#fav-list', '.wq');
+    bindPageSearch('tb-search-history', '#history-page', '.hist-row-card');
+    bindPageSearch('tb-search-note', '#note-list', '.note-card');
+  }
+  function initAllSearch(){
+    initChapterSearch();
+    initAllPageSearch();
+  }
+  document.addEventListener('DOMContentLoaded', () => { setTimeout(initAllSearch, 200); });
+  window.addEventListener('hashchange', () => { setTimeout(initAllSearch, 200); });
+  document.addEventListener('click', () => { setTimeout(initAllSearch, 120); });
+
   // ============ 倒计时 / 面包屑 / 阶段条 / 侧边栏统计 ============
   function renderCountdown(){
     const ex = currentExam();
@@ -1116,13 +1500,31 @@
     if(cdNum && cdNum !== document.getElementById('tn-cd-num')) cdNum.textContent = days;
   }
 
+  // 科目简称（按考试模块），用于顶部导航"CPA·会计"等
+  const SUBJ_SHORT = {
+    cpa: { accounting:'会计', auditing:'审计', finance:'财管', tax:'税法', economics:'经济', strategy:'战略' },
+    mid: { 'mid-practice':'实务', 'mid-finance':'财管', 'mid-econ':'经济' },
+    taxp: { 'tax-law1':'税一', 'tax-law2':'税二', 'tax-practice':'实务', 'tax-lawsvc':'法律', 'tax-fa':'财会' }
+  };
+  function subjectLabel(){
+    const ex = currentExam() || EXAMS[0];
+    const map = SUBJ_SHORT[ex.id] || {};
+    const s = getSubject();
+    const short = map[s] || s;
+    return (ex.short || ex.id) + '·' + short;
+  }
   function renderBreadcrumbs(){
-    const el = document.getElementById('crumb-subject');
-    if(!el) return;
-    const sub = subjects.find(s => s.id === getSubject());
-    const subjName = sub ? sub.name : (APP.subject || '当前科目');
+    const label = subjectLabel();
+    document.querySelectorAll('#crumb-subj').forEach(el => { if(el) el.textContent = label; });
+    const sb = document.getElementById('sb-subj'); if(sb) sb.textContent = label;
     const chCount = Object.keys(APP.chapters || {}).length;
-    el.textContent = `《${subjName}》全书 ${chCount} 章`;
+    const stat = '全书 ' + chCount + ' 章';
+    const el = document.getElementById('crumb-subject');
+    if(el) el.textContent = stat;
+    const tn = document.getElementById('tn-title');
+    if(tn) tn.textContent = '学习中心 / ' + label + ' / 练习历史';
+    const tnSub = document.getElementById('tn-sub');
+    if(tn && tnSub) tnSub.textContent = stat;
   }
 
   function renderStageBar(){
@@ -1152,12 +1554,7 @@
   }
 
   function renderSidebarStats(){
-    const qs = getQuestions();
-    const answered = qs.filter(q => getLastAnswerFor(q._uid));
-    const wrong = answered.filter(q => isWrong(q));
-    const correct = answered.filter(q => isCorrect(q));
-    const badge = document.getElementById('badge-wrong');
-    if(badge) badge.textContent = wrong.length;
+    // 侧边栏「我的错题」数量角标已移除
   }
 
   // ============ Wrong Questions ============
@@ -1180,47 +1577,50 @@
   }
 
   function renderWrongCard(q, idx){
-    const mastered = getMasteredSet().has(q._uid);
+    const uid = q._uid || q.uid;
+    const mastered = !!(q.mastered || getMasteredSet().has(uid));
+    const lastAns = q.lastAnswer || getLastAnswerFor(uid);
+    const practiced = !!(q.wrongCount || q.practiced);
     const manualWrong = isManualWrong(q);
-    const statusTag = mastered ? '<span class="tag tag-green">已掌握</span>' : (q.practiced ? '<span class="tag tag-teal">待复习</span>' : '<span class="tag tag-red">未掌握</span>');
+    const statusTag = mastered ? '<span class="tag tag-green">已掌握</span>' : (practiced ? '<span class="tag tag-teal">待复习</span>' : '<span class="tag tag-red">未掌握</span>');
     const opts = (q.options ? Object.entries(q.options) : []).map(([k, v]) => {
-      const lastAns = getLastAnswerFor(q._uid);
       const isRight = q.answer && q.answer.toUpperCase().indexOf(k.toUpperCase()) >= 0;
       const isPick = String(lastAns || '').toUpperCase().indexOf(k.toUpperCase()) >= 0;
       let cls = '', mk = '';
       if(isRight){ cls = 'is-right'; mk = '<em class="mk mk-green">正确答案</em>'; }
       else if(isPick){ cls = 'is-wrong'; mk = '<em class="mk mk-red">你的答案</em>'; }
-      return `<li class="${cls}"><span class="k">${k}</span><span>${fmtRich(v)}</span>${mk}</li>`;
+      return '<li class="'+cls+'"><span class="k">'+k+'</span><span>'+fmtRich(v)+'</span>'+mk+'</li>';
     }).join('');
     const wrongLabel = manualWrong ? '<span class="tag tag-orange" style="margin-left:8px">手动判错</span>' : '';
+    const wrongCountTag = q.wrongCount ? '<span class="wq-src" style="margin-left:6px">错'+q.wrongCount+'次</span>' : '';
+    const analysisHtml = q.analysis ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body">'+fmtRich(q.analysis)+'</div></details>' : (q.tag ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>'+escapeHtml(q.tag)+'</p></div></details>' : '');
     return `
-      <article class="wq" data-uid="${escapeHtml(q._uid)}">
+      <article class="wq" data-uid="${escapeHtml(uid)}">
         <div class="wq-head">
           <span class="wq-idx">${String(idx+1).padStart(2,'0')}</span>
           <span class="tag tag-gray">${getTypeLabel(q.type)}</span>
           <span class="wq-src">${escapeHtml(q.chapter)} · <b>${escapeHtml(q.section)}</b></span>
           <div class="sp">
-            ${statusTag}${wrongLabel}
-            <span class="wq-src">${q.practiced ? '已练习' : '未练习'}</span>
+            ${statusTag}${wrongLabel}${wrongCountTag}
+            <span class="wq-src">${practiced ? '已练习' : '未练习'}</span>
           </div>
         </div>
         <p class="wq-stem">${fmtRich(q.stem)}</p>
-        ${opts ? `<ul class="wq-opts">${opts}</ul>` : ''}
+        ${opts ? '<ul class="wq-opts">'+opts+'</ul>' : ''}
         <div class="ans-line">
           <span class="b">正确答案 <strong style="color:var(--color-success-text)">${q.answer || '—'}</strong></span>
           <span class="vline"></span>
-          <span class="b">你的答案 <strong style="color:var(--color-danger-text)">${getLastAnswerFor(q._uid) || '—'}</strong></span>
+          <span class="b">你的答案 <strong style="color:var(--color-danger-text)">${lastAns || '—'}</strong></span>
         </div>
-        ${q.tag ? `<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>${escapeHtml(q.tag)}</p></div></details>` : ''}
+        ${analysisHtml}
         <div class="wq-act">
           <a class="btn btn-ghost btn-sm" href="题刷刷.html?chapter=${encodeURIComponent(q.chapter)}&section=${encodeURIComponent(q.section)}#practice">重做本题</a>
           <button class="btn btn-quiet btn-sm btn-master">${mastered ? '取消已掌握' : '标记已掌握'}</button>
-          <span class="rate">${mastered ? '已掌握' : (q.practiced ? '待复习' : '未掌握')}</span>
+          <span class="rate">${mastered ? '已掌握' : (practiced ? '待复习' : '未掌握')}</span>
         </div>
       </article>
     `;
   }
-
   function renderWrongPager(total, totalPages){
     const pager = document.getElementById('wq-pager');
     if(!pager) return;
@@ -1250,9 +1650,9 @@
 
   function updateWrongSummary(all, filtered){
     const mastered = getMasteredSet();
-    const mCount = all.filter(q => mastered.has(q._uid)).length;
-    const pCount = all.filter(q => !mastered.has(q._uid) && q.practiced).length;
-    const uCount = all.filter(q => !mastered.has(q._uid) && !q.practiced).length;
+    const mCount = all.filter(w => w.mastered || mastered.has(w.uid || w._uid)).length;
+    const pCount = all.filter(w => !(w.mastered || mastered.has(w.uid || w._uid)) && (w.wrongCount || w.practiced)).length;
+    const uCount = all.filter(w => !(w.mastered || mastered.has(w.uid || w._uid)) && !(w.wrongCount || w.practiced)).length;
     const total = all.length;
     const setCount = (id, n) => { const el = document.getElementById(id); if(el) el.innerHTML = n + '<small>题</small>'; };
     setCount('wq-total', total);
@@ -1272,16 +1672,34 @@
     if(toEl) toEl.textContent = to;
   }
 
+  function getWrongList(){
+    try{
+      const raw = store.get('wrong_list_' + getSubject());
+      if(raw){
+        const arr = JSON.parse(raw);
+        if(Array.isArray(arr) && arr.length) return arr;
+      }
+    }catch(e){}
+    // 回退：从题库+历史派生旧版错题
+    return getQuestions().filter(q => isWrong(q)).map(q => ({
+      uid: q._uid, chapter: q.chapter, section: q.section, type: q.type,
+      raw_type: q.raw_type, stem: q.stem, options: q.options,
+      answer: q.answer, analysis: q.analysis, lastAnswer: getLastAnswerFor(q._uid),
+      wrongCount: 1, lastWrongTime: 0, mastered: getMasteredSet().has(q._uid)
+    }));
+  }
   function renderWrongQuestions(){
     const list = document.getElementById('wq-list');
     if(!list) return;
-    let all = getQuestions().filter(q => isWrong(q));
-    const mastered = getMasteredSet();
+    let all = getWrongList();
+    const masteredSet = getMasteredSet();
+    // 同步 mastered 状态
+    all = all.map(w => ({ ...w, mastered: w.mastered || masteredSet.has(w.uid) }));
 
     let filtered = all;
-    if(wrongPageState.filter === 'unmastered') filtered = all.filter(q => !mastered.has(q._uid));
-    else if(wrongPageState.filter === 'pending') filtered = all.filter(q => !mastered.has(q._uid) && q.practiced);
-    else if(wrongPageState.filter === 'mastered') filtered = all.filter(q => mastered.has(q._uid));
+    if(wrongPageState.filter === 'unmastered') filtered = all.filter(w => !w.mastered);
+    else if(wrongPageState.filter === 'pending') filtered = all.filter(w => !w.mastered);
+    else if(wrongPageState.filter === 'mastered') filtered = all.filter(w => w.mastered);
 
     const total = filtered.length;
     const totalPages = Math.max(1, Math.ceil(total / WRONG_PAGE_SIZE));
@@ -1289,14 +1707,14 @@
     const start = (wrongPageState.page - 1) * WRONG_PAGE_SIZE;
     const pageItems = filtered.slice(start, start + WRONG_PAGE_SIZE);
 
-    if(!pageItems.length){ list.innerHTML = '<div class="subject-empty" style="padding:60px 24px"><h3>暂无错题数据</h3><p>当前筛选条件下没有已校验错题。</p></div>'; }
-    else { list.innerHTML = pageItems.map((q, i) => renderWrongCard(q, start + i)).join(''); }
+    if(!pageItems.length){ list.innerHTML = '<div class="subject-empty" style="padding:60px 24px"><h3>暂无错题数据</h3><p>交卷后答错的题目会自动收录到这里。</p></div>'; }
+    else { list.innerHTML = pageItems.map((w, i) => renderWrongCard(w, start + i)).join(''); }
 
     renderWrongPager(total, totalPages);
     updateWrongSummary(all, filtered);
 
     list.querySelectorAll('.btn-master').forEach((btn, i) => {
-      btn.addEventListener('click', () => toggleMastered(pageItems[i]._uid));
+      btn.addEventListener('click', () => toggleMastered(pageItems[i].uid));
     });
 
     const seg = document.getElementById('wq-seg');
@@ -1372,8 +1790,13 @@
   function renderFavorites(){
     const list = document.getElementById('fav-list');
     if(!list) return;
-    const fav = getFavorites();
-    const qs = getQuestions().filter(q => q._uid && fav.has(q._uid));
+    const favMap = getFavorites();
+    // 优先用收藏里存的完整题目；旧版收藏（只有 uid 没有 stem）从题库补全
+    let qs = [...favMap.values()].map(item => {
+      if(item.stem) return item;
+      const q = getQuestions().find(x => x._uid === item.uid);
+      return q || item;
+    });
     const total = qs.length;
     const totalPages = Math.max(1, Math.ceil(total / FAV_PAGE_SIZE));
     favPageState.page = Math.min(Math.max(favPageState.page, 1), totalPages);
@@ -1398,6 +1821,117 @@
     const to = Math.min(start + FAV_PAGE_SIZE, total);
     const fromEl = document.getElementById('fav-from');
     const toEl = document.getElementById('fav-to');
+    if(fromEl) fromEl.textContent = from;
+    if(toEl) toEl.textContent = to;
+  }
+
+  // ============ 待纠错 ============
+  const ERR_PAGE_SIZE = 10;
+  let errPageState = { page: 1 };
+
+  function renderErrorCard(q, idx){
+    const opts = Object.entries(q.options).map(([k, v]) => `<li><span class="k">${k}</span><span>${fmtRich(v)}</span></li>`).join('');
+    return `
+      <article class="wq" data-uid="${escapeHtml(q.uid || q._uid)}">
+        <div class="wq-head">
+          <span class="wq-idx">${String(idx+1).padStart(2,'0')}</span>
+          <span class="tag tag-gray">${getTypeLabel(q.type)}</span>
+          <span class="wq-src">${escapeHtml(q.chapter)} · <b>${escapeHtml(q.section)}</b></span>
+          <div class="sp">
+            <button class="ico-btn" title="取消纠错" data-uid="${escapeHtml(q.uid || q._uid)}">
+              <svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>
+            </button>
+          </div>
+        </div>
+        <p class="wq-stem">${fmtRich(q.stem)}</p>
+        <ul class="wq-opts">${opts}</ul>
+        ${q.analysis ? `<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>${escapeHtml(q.analysis)}</p></div></details>` : ''}
+        <div class="wq-act">
+          <a class="btn btn-ghost btn-sm" href="题刷刷.html?chapter=${encodeURIComponent(q.chapter)}&section=${encodeURIComponent(q.section)}#practice">重做本题</a>
+        </div>
+      </article>
+    `;
+  }
+
+  function renderErrorCorrectedPager(total, totalPages){
+    const pager = document.getElementById('err-pager');
+    if(!pager) return;
+    if(totalPages <= 1){ pager.innerHTML = '<span style="font-size:12px;color:var(--color-text-secondary)">每页 ' + ERR_PAGE_SIZE + ' 题</span>'; return; }
+    let html = '<button class="pg" data-page="prev" ' + (errPageState.page <= 1 ? 'disabled style="opacity:.5;cursor:not-allowed"' : '') + '>&lsaquo;</button>';
+    for(let i = 1; i <= totalPages; i++){
+      if(i === 1 || i === totalPages || (i >= errPageState.page - 1 && i <= errPageState.page + 1)){
+        html += `<button class="pg ${i === errPageState.page ? 'on' : ''}" data-page="${i}">${i}</button>`;
+      } else if(i === errPageState.page - 2 || i === errPageState.page + 2){
+        html += '<button class="pg" disabled style="opacity:.5;cursor:default">…</button>';
+      }
+    }
+    html += '<button class="pg" data-page="next" ' + (errPageState.page >= totalPages ? 'disabled style="opacity:.5;cursor:not-allowed"' : '') + '>&rsaquo;</button>';
+    html += '<span style="margin-left:8px">每页 ' + ERR_PAGE_SIZE + ' 题</span>';
+    pager.innerHTML = html;
+    pager.querySelectorAll('.pg[data-page]').forEach(b => {
+      b.addEventListener('click', () => {
+        if(b.disabled) return;
+        const p = b.getAttribute('data-page');
+        if(p === 'prev') errPageState.page--;
+        else if(p === 'next') errPageState.page++;
+        else errPageState.page = parseInt(p, 10);
+        renderErrorCorrected();
+      });
+    });
+  }
+
+  function updateErrorStats(qs){
+    const total = qs.length;
+    const single = qs.filter(q => q.type === 'single' || q.ptype === 'single').length;
+    const multi = qs.filter(q => q.type === 'multi' || q.ptype === 'multi').length;
+    const judge = qs.filter(q => q.type === 'judge' || q.ptype === 'judge').length;
+    const chapters = new Set(qs.map(q => q.chapter).filter(Boolean)).size;
+    const allQ = getQuestions().length || 1;
+    const ratio = Math.round(total / allQ * 100);
+
+    const set = (id, val) => { const el = document.getElementById(id); if(el) el.innerHTML = val + '<small>' + (id === 'err-chapters' ? '章' : id === 'err-ratio' ? '%' : '题') + '</small>'; };
+    set('err-total', total);
+    set('err-single', single);
+    set('err-multi', multi);
+    set('err-judge', judge);
+    set('err-chapters', chapters);
+    set('err-ratio', ratio);
+  }
+
+  function renderErrorCorrected(){
+    const list = document.getElementById('err-list');
+    if(!list) return;
+    const errMap = getErrorCorrected();
+    let qs = [...errMap.values()].map(item => {
+      if(item.stem) return item;
+      const q = getQuestions().find(x => x._uid === item.uid);
+      return q || item;
+    });
+    const total = qs.length;
+    const totalPages = Math.max(1, Math.ceil(total / ERR_PAGE_SIZE));
+    errPageState.page = Math.min(Math.max(errPageState.page, 1), totalPages);
+    const start = (errPageState.page - 1) * ERR_PAGE_SIZE;
+    const pageItems = qs.slice(start, start + ERR_PAGE_SIZE);
+
+    if(!pageItems.length){ list.innerHTML = '<div class="subject-empty" style="padding:60px 24px"><h3>暂无纠错题目</h3><p>在做题页点击「纠错」按钮，标记答案有问题的题目会出现在这里。</p></div>'; }
+    else { list.innerHTML = pageItems.map((q, i) => renderErrorCard(q, start + i)).join(''); }
+
+    renderErrorCorrectedPager(total, totalPages);
+    updateErrorStats(qs);
+
+    list.querySelectorAll('.ico-btn[data-uid]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        removeErrorCorrected(btn.getAttribute('data-uid'));
+        renderErrorCorrected();
+      });
+    });
+
+    const cnt = document.getElementById('err-count');
+    if(cnt) cnt.textContent = total;
+    const from = total ? (start + 1) : 0;
+    const to = Math.min(start + ERR_PAGE_SIZE, total);
+    const fromEl = document.getElementById('err-from');
+    const toEl = document.getElementById('err-to');
     if(fromEl) fromEl.textContent = from;
     if(toEl) toEl.textContent = to;
   }
@@ -1680,7 +2214,7 @@
   const EXAM_DURATION_SEC = 60 * 60; // 机考时长（秒）60 分钟
   const EXAM_MIN_POOL = 10;       // 客观题池不足提示阈值
   // 右栏两区块（草稿 / 正确答案与解析）的折叠状态：全局、跨题目保持（点任意题隐藏，切到别的题仍隐藏）
-  let rightCollapsed = { draft: false, ans: false };
+  let rightCollapsed = { draft: false, ans: true };
   function applyRightCollapsed(){
     const map = { 'draft-section': 'draft', 'ans-section': 'ans' };
     Object.keys(map).forEach(id => {
@@ -1718,23 +2252,28 @@
       try{
         const s = JSON.parse(raw);
         const state = {
-          answers: s.answers || {}, marked: s.marked || {}, starred: s.starred || {},
+          answers: s.answers || {}, marked: s.marked || {}, starred: s.starred || {}, errorCorrected: s.errorCorrected || {},
           elapsed: s.elapsed || 0, lastActive: s.lastActive || 0,
           submitted: !!s.submitted, currentIndex: s.currentIndex || 0
         };
         // 同步全局收藏到本节 starred，保证跨节收藏状态一致
         const fav = getFavorites();
         practiceQuestions.forEach((q, i) => { if(q._uid && fav.has(q._uid)) state.starred[i] = true; });
+        // 同步全局纠错到本节 errorCorrected，保证跨节纠错状态一致
+        const err = getErrorCorrected();
+        practiceQuestions.forEach((q, i) => { if(q._uid && err.has(q._uid)) state.errorCorrected[i] = true; });
         return state;
       }catch(e){}
     }
     // 首次进入（无续做状态）：从空白开始，不预填任何历史作答；仅同步全局收藏标记
     // （历史作答已存入 sessions_ 留痕，可在「练习历史」中查看，不会覆盖/预填到当前训练）
     const starred = {};
+    const errorCorr = {};
     practiceQuestions.forEach((q, i) => {
       if(q._uid && isFavorite(q._uid)) starred[i] = true;
+      if(q._uid && isErrorCorrected(q._uid)) errorCorr[i] = true;
     });
-    return { answers: {}, marked: {}, starred, elapsed: 0, lastActive: Date.now(), submitted: false, currentIndex: 0 };
+    return { answers: {}, marked: {}, starred, errorCorrected: errorCorr, elapsed: 0, lastActive: Date.now(), submitted: false, currentIndex: 0 };
   }
   function saveState(){
     if(!practiceState) return;
@@ -1750,7 +2289,12 @@
     try{ const raw = store.get(globalAnswersKey()); if(raw) map = JSON.parse(raw) || {}; }catch(e){}
     practiceQuestions.forEach((q, i) => {
       if(!q._uid) return;
-      map[q._uid] = practiceState.answers[i] || '';
+      const ans = practiceState.answers[i];
+      if(ans){
+        map[q._uid] = ans;  // 只写有作答的题
+      }else{
+        delete map[q._uid]; // 未作答的删除，不写空串
+      }
     });
     try{ store.set(globalAnswersKey(), JSON.stringify(map)); }catch(e){}
   }
@@ -1759,29 +2303,33 @@
 
   // 单题判分：返回 {state, earned, max} —— 未作答不在 earned/max 内体现
   function judgeOne(q, ans){
-    if(!isVerified(q)) return { state: ans ? 'pending' : 'blank', earned: 0, max: 0 };
-    const max = q.type === 'multi' ? 2 : (Number(q.score) || 1);
-    if(!ans) return { state: 'blank', earned: 0, max };
-    // 主观题：不自动判分，以用户手动判定为准
+    // 主观题优先走手动判定（不受verified拦截影响）
     if(isSubjective(q)){
+      const max = questionMaxScore(q);
+      if(!ans) return { state: 'blank', earned: 0, max };
       const g = getManualGrade(q._uid);
       if(!g) return { state: 'pending', earned: 0, max };
       return { state: g.state, earned: g.state === 'correct' ? (Number(g.score) || max) : 0, max: Number(g.score) || max };
     }
+    // 客观题：未verified的不计分
+    if(!isVerified(q)) return { state: ans ? 'pending' : 'blank', earned: 0, max: 0 };
+    const max = questionMaxScore(q);
+    if(!ans) return { state: 'blank', earned: 0, max };
     const ok = normAns(ans) === normAns(q.answer);
     return { state: ok ? 'correct' : 'wrong', earned: ok ? max : 0, max };
   }
-  function normAns(a){ return String(a || '').toUpperCase().split('').filter(c => /[A-Z]/.test(c)).sort().join(''); }
+  function normAns(a){ return Array.from(new Set(String(a || '').toUpperCase().match(/[A-Z]/g) || [])).sort().join(''); }
 
   function computeScore(){
     let score = 0, maxScore = 0, correct = 0, wrong = 0, pending = 0, unanswered = 0;
     practiceQuestions.forEach((q, i) => {
       const ans = practiceState.answers[i];
       const r = judgeOne(q, ans);
+      maxScore += questionMaxScore(q);  // 分母恒定：所有题目满分都计入
       if(r.state === 'pending') pending++;
-      else if(r.state === 'correct'){ correct++; score += r.earned; maxScore += r.max; }
-      else if(r.state === 'wrong'){ wrong++; maxScore += r.max; }
-      else if(r.state === 'blank'){ unanswered++; if(r.max) maxScore += r.max; }
+      else if(r.state === 'correct'){ correct++; score += r.earned; }
+      else if(r.state === 'wrong'){ wrong++; }
+      else if(r.state === 'blank'){ unanswered++; }
     });
     return { score, maxScore, correct, wrong, pending, unanswered, total: practiceQuestions.length };
   }
@@ -1790,6 +2338,7 @@
     const sheet = document.getElementById('sheet');
     if(!sheet) return; // 仅做题页执行
     const params = new URLSearchParams(location.search);
+    
     practiceIsWrongRandom = params.get('mode') === 'wrong_random';
     practiceIsExam = params.get('mode') === 'exam';
     practiceChapter = params.get('chapter') || '';
@@ -1799,17 +2348,42 @@
     if(params.get('mode') === 'select'){ renderPaperSelector(); return; }
     if(params.get('mode') === 'paper'){
       practicePaperId = params.get('paperId') || '';
-      const paper = (APP.papers || []).find(p => p.id === practicePaperId);
+      const isIntensive = params.get('module') === 'intensive';
+      const moduleLabel = isIntensive ? '强化训练' : '冲刺模考';
+      // 运行时动态获取当前科目的题库
+      let paperBank;
+      if(isIntensive){
+        const b = window.BANK_INTENSIVE;
+        const s = __bankSubj__();
+        paperBank = b ? ((b[s] != null) ? b[s] : b) : [];
+      } else {
+        paperBank = (APP.papers || []);
+      }
+      const paper = paperBank.find(p => p.id === practicePaperId);
+      
       if(!paper){
         const qc = document.querySelector('.q-card');
-        if(qc) qc.innerHTML = '<div class="subject-empty"><h3>套卷未找到</h3><p>请返回冲刺模考重新选择套卷。</p></div>';
+        if(qc) qc.innerHTML = '<div class="subject-empty"><h3>套卷未找到</h3><p>请返回' + moduleLabel + '重新选择套卷。</p></div>';
         const sp = document.getElementById('sheet-sp'); if(sp) sp.textContent = '0 题';
         return;
       }
-      practiceChapter = paper.name;
-      const psess = ensureSession('paper', practicePaperId, '');
-      practiceSessionId = psess.id;
-      practiceQuestions = getQuestions();
+      practiceChapter = paper.name || ('paper:' + practicePaperId);
+      
+      try {
+        const psess = ensureSession('paper', practicePaperId, '');
+        practiceSessionId = psess.id;
+        
+      } catch(e) {
+        
+      }
+      
+      try {
+        practiceQuestions = getQuestions();
+        
+      } catch(e) {
+        
+      }
+      
       if(!practiceQuestions.length){
         const qc = document.querySelector('.q-card');
         if(qc) qc.innerHTML = '<div class="subject-empty"><h3>该套卷暂无题目</h3></div>';
@@ -1879,14 +2453,20 @@
   function syncTopbarBack(){
     const back = document.getElementById('topbar-back');
     const txt = document.getElementById('topbar-back-text');
-    if(!back || !txt) return;
+    const pback = document.getElementById('pb-back');
+    const ptxt = document.getElementById('pb-back-text');
+    let href, label;
     if(practicePaperId || practiceIsExam){
-      back.setAttribute('href', '#practice?mode=select');
-      txt.textContent = '返回冲刺模考';
+      href = '#practice?mode=select';
+      label = '返回冲刺模考';
     } else {
-      back.setAttribute('href', '#chapter');
-      txt.textContent = '返回章节';
+      href = '#chapter';
+      label = '返回章节';
     }
+    if(back) back.setAttribute('href', href);
+    if(txt) txt.textContent = label;
+    if(pback) pback.setAttribute('href', href);
+    if(ptxt) ptxt.textContent = label;
   }
 
   function enterPracticeSession(){
@@ -1897,7 +2477,7 @@
     if(colRightEl){ colRightEl.style.display = ''; colRightEl.classList.remove('collapsed'); }
     const colsEl = document.querySelector('.cols');
     if(colsEl) colsEl.classList.remove('right-collapsed');
-    rightCollapsed = { draft: false, ans: false }; // 新练习默认两区块都展开
+    rightCollapsed = { draft: false, ans: true }; // 新练习默认折叠「正确答案与解析」，点击展开后可看正确答案/我的作答/解析
     applyRightCollapsed();
     // 同步状态到题目对象（与全局 user_answer 保持一致，便于其他逻辑复用）
     practiceQuestions.forEach((q, i) => { q.user_answer = practiceState.answers[i] || ''; });
@@ -1918,11 +2498,45 @@
       } else if(practiceIsExam){
         tbTitle.innerHTML = '全真模考 · <b>限时 ' + Math.round(practiceExamDuration / 60) + ' 分钟</b> · 客观题 ' + EXAM_COUNT + ' 题';
       } else if(practicePaperId){
-        tbTitle.innerHTML = escapeHtml(practiceChapter) + ' · <b>冲刺模考套卷</b>';
+        const isIntensivePaper = /[?&]module=intensive/.test(location.search);
+        let paperLabel = isIntensivePaper ? '强化训练套卷' : '冲刺模考套卷';
+        // 中级会计实务强化训练显示特定名称
+        if(isIntensivePaper && getSubject() === 'mid-practice'){
+          paperLabel = '2026年中级实务-正保550题';
+        }
+        tbTitle.innerHTML = escapeHtml(practiceChapter) + ' · <b>' + paperLabel + '</b>';
       } else {
         const secShort = practiceSection.replace(/^第\d+关\s*/, '');
         tbTitle.innerHTML = escapeHtml(practiceChapter) + ' · <b>' + escapeHtml(secShort) + '</b> · 章节训练';
       }
+    }
+    // 顶部黑底栏面包屑（参照冲刺模拟：学习中心 / 科目 / 模式 / 位置）
+    const tbInner = document.querySelector('.topbar .tb-inner');
+    if(tbInner){
+      const oldCrumb = document.getElementById('practice-crumb');
+      if(oldCrumb) oldCrumb.remove();
+      const crumb = document.createElement('nav');
+      crumb.id = 'practice-crumb';
+      crumb.className = 'crumb';
+      crumb.style.cssText = 'justify-content:center;display:flex;flex-wrap:wrap;gap:2px;align-items:center';
+      const urlParams = new URLSearchParams(location.search);
+      const isIntensive = urlParams.get('module') === 'intensive';
+      const modeLabel = practiceIsWrongRandom ? '错题训练' : (practicePaperId ? (isIntensive ? '强化训练' : '冲刺模考') : '章节训练');
+      const locLabel = practicePaperId ? (practiceChapter || '') : (practiceChapter + (practiceSection ? ' · ' + practiceSection.replace(/^第\d+关\s*/, '') : ''));
+      // 返回按钮：根据当前页面层级设置返回目标
+      let backHref = '#dashboard';
+      if(practicePaperId){
+        // 答题卡页面：返回到选卷页
+        backHref = isIntensive ? '题刷刷.html?module=intensive&mode=select#practice' : '题刷刷.html?mode=select#practice';
+      } else if(practiceChapter){
+        // 章节训练答题卡：返回到章节列表
+        backHref = '#chapter';
+      }
+      crumb.innerHTML = '<a href="' + backHref + '" class="tb-back">返回</a>' +
+        '<span class="crumb-subj">' + escapeHtml(subjectLabel()) + '</span>' +
+        '<span class="crumb-mode">' + modeLabel + '</span>' +
+        '<span class="crumb-paper">' + escapeHtml(locLabel) + '</span>';
+      tbInner.appendChild(crumb);
     }
     const sp = document.getElementById('sheet-sp');
     if(sp) sp.textContent = '共 ' + practiceQuestions.length + ' 题';
@@ -1936,11 +2550,24 @@
   function renderPaperSelector(){
     const card = document.querySelector('.q-card');
     if(!card) return;
-    const papers = (APP.papers || []);
-    const groups = [['past', '历年真题'], ['sim', '全真模拟-正保题刷刷']];
+    // 根据URL参数module决定使用哪个题库
+    const urlParams = new URLSearchParams(location.search);
+    const isIntensive = urlParams.get('module') === 'intensive';
+    const moduleLabel = isIntensive ? '强化训练' : '冲刺模考';
+    // 运行时动态获取当前科目的题库（切换科目后实时生效）
+    let papers;
+    if(isIntensive){
+      const b = window.BANK_INTENSIVE;
+      const s = __bankSubj__();
+      papers = b ? ((b[s] != null) ? b[s] : b) : [];
+    } else {
+      papers = (APP.papers || []);
+    }
+    // 中级会计实务强化训练显示特定名称
+    const intensiveLabel = (getSubject() === 'mid-practice') ? '2026年中级实务-正保550题' : '强化训练';
+    const groups = isIntensive ? [['intensive', intensiveLabel]] : [['past', '历年真题'], ['sim', '全真模拟']];
+    const moduleParam = isIntensive ? '&module=intensive' : '';
     let html = '<div style="max-width:900px;margin:0 auto;padding:10px 4px">';
-    html += '<div style="font-size:21px;font-weight:700;margin:4px 0 2px">冲刺模考 · 选择套卷</div>';
-    html += '<div style="color:var(--color-text-secondary);font-size:13px;margin-bottom:18px">选一套整卷自测：客观题自动判分，主观题对照参考答案自核。后续新增试卷会自动出现在此列表。</div>';
     for(const [mode, label] of groups){
       const list = papers.filter(p => p.mode === mode);
       if(!list.length) continue;
@@ -1949,12 +2576,15 @@
       html += '<div class="paper-group-body">';
       for(const p of list){
         const n = (p.questions || []).length;
-        const href = '题刷刷.html?mode=paper&paperId=' + encodeURIComponent(p.id) + '#practice';
-        html += '<a href="' + href + '" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1px solid var(--color-border);border-radius:11px;text-decoration:none;color:var(--color-text-primary);background:var(--color-surface);transition:.15s" onmouseover="this.style.borderColor=\'var(--color-primary)\'" onmouseout="this.style.borderColor=\'var(--color-border)\'">'
+        const href = '题刷刷.html?mode=paper&paperId=' + encodeURIComponent(p.id) + moduleParam + '#practice';
+        html += '<a href="' + href + '" class="paper-item" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1px solid var(--color-border);border-radius:11px;text-decoration:none;color:var(--color-text-primary);background:var(--color-surface);transition:.15s" onmouseover="this.style.borderColor=\'var(--color-primary)\'" onmouseout="this.style.borderColor=\'var(--color-border)\'">'
               + '<span style="font-size:13px;line-height:1.45">' + escapeHtml(p.name) + '</span>'
               + '<span style="flex:0 0 auto;font-size:12px;color:var(--color-text-secondary);background:var(--color-surface-muted);border-radius:20px;padding:3px 10px">' + n + ' 题</span></a>';
       }
       html += '</div></div>';
+    }
+    if(!papers.length){
+      html += '<div style="text-align:center;padding:60px 20px;color:var(--color-text-secondary)">暂无' + moduleLabel + '套卷，后续添加后自动显示</div>';
     }
     html += '</div>';
     card.innerHTML = html;
@@ -1965,14 +2595,19 @@
         if(g) g.classList.toggle('collapsed');
       });
     });
-    const tb = document.getElementById('tb-title'); if(tb) tb.innerHTML = '冲刺模考 · 选择套卷';
+    const tb = document.getElementById('tb-title');
+    if(tb) tb.innerHTML = '<nav class="crumb" style="justify-content:center;display:flex;flex-wrap:wrap;gap:8px">' +
+      '<a href="#dashboard" class="tb-back">返回</a>' +
+      '<span style="color:#475569">/</span><span id="crumb-subj">' + escapeHtml(subjectLabel()) + '</span>' +
+      '<span style="color:#475569">/</span><span style="color:var(--color-text-primary);font-weight:600">' + moduleLabel + '</span>' +
+      '<span style="color:#475569">/</span><span style="color:var(--color-text-secondary)">选择套卷</span></nav>';
     const sp = document.getElementById('sheet-sp'); if(sp) sp.textContent = '共 ' + papers.length + ' 套';
     const colRight = document.getElementById('col-right'); if(colRight) colRight.style.display = 'none';
-    // 选卷页顶栏 back 也设成"返回冲刺模考"自身（虽然被 CSS 隐藏，href 留对以防 stale）
+    // 选卷页顶栏 back 也设成返回自身（虽然被 CSS 隐藏，href 留对以防 stale）
     const back = document.getElementById('topbar-back');
     const backTxt = document.getElementById('topbar-back-text');
-    if(back) back.setAttribute('href', '题刷刷.html?mode=select#practice');
-    if(backTxt) backTxt.textContent = '返回冲刺模考';
+    if(back) back.setAttribute('href', '题刷刷.html?mode=select' + moduleParam + '#practice');
+    if(backTxt) backTxt.textContent = '返回' + moduleLabel;
     // ============== select 模式专用布局：隐藏做题周边元素 ==============
     // 顶栏：返回章节 / 进度条 / 计时器 — 都属于做题时才有，选卷页不该出现
     // 左栏：本次训练 / 答题卡 / 底部导航 / 交卷按钮 — 选卷页一律不该出现
@@ -1983,7 +2618,10 @@
       s.textContent = [
         'body.mode-select .topbar .back,',
         'body.mode-select .topbar .prog-mini,',
-        'body.mode-select .topbar .timer { display: none !important; }',
+        'body.mode-select .topbar .timer,',
+        'body.mode-select .topbar .tb-right { display: none !important; }',
+        'body.mode-select .topbar .tb-title { display: block !important; }',
+        'body.mode-select .col-toggle-mini { display: none !important; }',
         'body.mode-select .col-left,',
         'body.mode-select .col-right { display: none !important; }',
         'body.mode-select .v-splitter { display: none !important; }',
@@ -2000,12 +2638,36 @@
       document.head.appendChild(s);
     }
     document.body.classList.add('mode-select');
+    // 冲刺模考选套卷页：顶部黑底栏右侧固定搜索框
+    let pbox = document.getElementById('tb-search-papers');
+    if(!pbox){
+      const inner = document.querySelector('.topbar .tb-inner');
+      if(inner){
+        pbox = document.createElement('input');
+        pbox.id = 'tb-search-papers';
+        pbox.className = 'tb-search';
+        pbox.type = 'text';
+        pbox.placeholder = '搜索套卷…';
+        inner.appendChild(pbox);
+      }
+    }
+    bindPageSearch('tb-search-papers', '.q-card', '.paper-item');
   }
 
   // 根据当前页面 URL 同步侧边栏高亮（多模式页面如 practice-review 按 mode 区分）
   function syncSidebarActive(){
   try{
-    const v = getCurrentView();
+    let v = getCurrentView();
+    // 答题卡页面区分章节训练和冲刺模考
+    if(v === 'practice'){
+      const h = location.hash.replace(/^#/, '');
+      const qi = h.indexOf('?');
+      const q = qi >= 0 ? h.slice(qi + 1) : location.search.replace(/^\?/, '');
+      const params = new URLSearchParams(q);
+      if(params.get('module') === 'intensive') v = 'intensive'; // 强化训练
+      else if(params.get('chapter')) v = 'chapter'; // 章节训练答题卡
+      else if(params.get('mode') === 'paper' || params.get('mode') === 'select') v = 'practice'; // 冲刺模考
+    }
     document.querySelectorAll('.sb-item.is-active').forEach(a => a.classList.remove('is-active'));
     document.querySelectorAll('.sb-item[aria-current="page"]').forEach(a => a.removeAttribute('aria-current'));
     document.querySelectorAll('.sb-item').forEach(a => {
@@ -2032,6 +2694,7 @@
     if(i === currentIndex) cls.push('cur');
     if(practiceState.marked[i]) cls.push('flag');
     if(practiceState.starred[i]) cls.push('star');
+    if(practiceState.errorCorrected && practiceState.errorCorrected[i]) cls.push('error');
     const ans = practiceState.answers[i];
     if(practiceSubmitted && ans){
       const r = judgeOne(q, ans);
@@ -2042,6 +2705,17 @@
       cls.push('done'); // 做题中：已作答(蓝)
     }
     return cls.join(' ');
+  }
+  function cellSymbol(i){
+    const q = practiceQuestions[i];
+    const ans = practiceState.answers[i];
+    if(practiceSubmitted && ans){
+      const r = judgeOne(q, ans);
+      if(r.state === 'correct') return '<span class="cell-sym ok-sym">✓</span>';
+      else if(r.state === 'wrong') return '<span class="cell-sym no-sym">✗</span>';
+      else if(r.state === 'pending') return '<span class="cell-sym pending-sym">?</span>';
+    }
+    return '';
   }
   function renderSheet(){
     const body = document.getElementById('sheet');
@@ -2059,15 +2733,19 @@
     groups.forEach(g => {
       const idxs = [];
       practiceQuestions.forEach((q, i) => {
-        const qt = q.ptype || (q.type === 'subjective' ? 'sub' : q.type);
+        const qt = (q.type === 'subjective') ? (q.ptype || 'sub') : (q.ptype || q.type);
         if(qt === g.key) idxs.push(i);
       });
       if(!idxs.length) return;
-      html += '<div class="sheet-group"><div class="sheet-group-h">' + g.label + '<span>' + idxs.length + ' 题</span></div><div class="sheet">';
+      const groupScore = idxs.reduce((s, i) => {
+        const q = practiceQuestions[i];
+        return s + questionMaxScore(q);
+      }, 0);
+      html += '<div class="sheet-group"><div class="sheet-group-h">' + g.label + '（' + idxs.length + '题，共' + groupScore + '分）</div><div class="sheet">';
       idxs.forEach(i => {
         const q = practiceQuestions[i];
         const no = qNo(q, i);
-        html += '<button class="' + cellClass(i) + '" data-idx="' + i + '" title="第 ' + no + ' 题" type="button">' + no + '</button>';
+        html += '<button class="' + cellClass(i) + '" data-idx="' + i + '" title="第 ' + no + ' 题" type="button"><span class="cell-no">' + no + '</span>' + cellSymbol(i) + '</button>';
       });
       html += '</div></div>';
     });
@@ -2096,22 +2774,23 @@
       } else if(ans){ done++; }
     });
     const starN = Object.keys(practiceState.starred || {}).length;
+    const errorN = Object.keys(practiceState.errorCorrected || {}).length;
     if(practiceSubmitted){
       el.innerHTML =
-        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>正确 ' + ok + '</span>' +
-        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>错误 ' + no + '</span>' +
-        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>待校验 ' + pending + '</span>' +
-        '<span><i style="background:rgba(192,59,43,.16);border-color:#C03B2B"></i>当前</span>' +
+        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>✓ 正确 ' + ok + '</span>' +
         '<span><i style="background:#B45309;border-color:#B45309"></i>已标记 ' + flag + '</span>' +
-        '<span><i style="background:#F2B33D;border-color:#F2B33D"></i>已收藏 ' + starN + '</span>';
+        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>? 待校验 ' + pending + '</span>' +
+        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>✗ 错误 ' + no + '</span>' +
+        '<span><i style="background:#F2B33D;border-color:#F2B33D"></i>已收藏 ' + starN + '</span>' +
+        '<span><i style="background:rgba(220,38,38,.10);border-color:#DC2626"></i>待纠错 ' + errorN + '</span>';
     } else {
-      const unanswered = practiceQuestions.length - done;
       el.innerHTML =
-        '<span><i style="background:#F4E0DA;border-color:#D9A79C"></i>已作答 ' + done + '</span>' +
-        '<span><i></i>未作答 ' + unanswered + '</span>' +
-        '<span><i style="background:rgba(192,59,43,.16);border-color:#C03B2B"></i>当前</span>' +
+        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>✓ 正确 0</span>' +
         '<span><i style="background:#B45309;border-color:#B45309"></i>已标记 ' + flag + '</span>' +
-        '<span><i style="background:#F2B33D;border-color:#F2B33D"></i>已收藏 ' + starN + '</span>';
+        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>? 待校验 0</span>' +
+        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>✗ 错误 0</span>' +
+        '<span><i style="background:#F2B33D;border-color:#F2B33D"></i>已收藏 ' + starN + '</span>' +
+        '<span><i style="background:rgba(220,38,38,.10);border-color:#DC2626"></i>待纠错 ' + errorN + '</span>';
     }
   }
 
@@ -2119,7 +2798,7 @@
   function renderCurrentQuestion(){
     const q = practiceQuestions[currentIndex];
     if(!q) return;
-    setText('pr-qno', currentIndex + 1);
+    setText('pr-qno', qNo(q, currentIndex));
     setText('pr-type', getTypeLabel(q.type));
     setText('pr-meta', (q.chapter || '') + ' · ' + (q.section || '').replace(/^第\d+关\s*/, ''));
     const stem = document.getElementById('pr-stem');
@@ -2150,6 +2829,8 @@
     if(btnMark) btnMark.classList.toggle('on-mark', !!practiceState.marked[currentIndex]);
     const btnStar = document.getElementById('btn-star');
     if(btnStar) btnStar.classList.toggle('on-star', !!practiceState.starred[currentIndex]);
+    const btnError = document.getElementById('btn-error');
+    if(btnError) btnError.classList.toggle('on-error', !!(practiceState.errorCorrected && practiceState.errorCorrected[currentIndex]));
     // 标记此题 → 题卡橙色边框 + 角标
     const qcard = document.querySelector('.q-card');
     if(qcard) qcard.classList.toggle('is-marked', !!practiceState.marked[currentIndex]);
@@ -2179,32 +2860,65 @@
     const wrap = document.getElementById('draft-wrap');
     const view = document.getElementById('draft-view');
     const ta = document.getElementById('draft-input');
+    const toggleBtn = document.getElementById('draft-toggle-btn');
     if(!ta) return;
     const uid = q._uid;
     if(practiceSubmitted){
-      // 交卷后：隐藏输入框，展示只读草稿
-      if(wrap) wrap.style.display = 'none';
-      const draft = getDraft(uid);
-      if(view){
-        view.style.display = draft ? '' : 'none';
-        view.innerHTML = draft
-          ? '<div class="card-h" style="padding:0 0 8px"><h3 style="font-size:13px">作答草稿 · 你的思考</h3></div>' +
-            '<div class="draft-view">' + escapeHtml(draft).replace(/\n/g, '<br>') + '</div>'
-          : '';
+      // 交卷后：默认只读，点击编辑按钮后才可修改
+      if(wrap) wrap.style.display = '';
+      if(view) view.style.display = 'none';
+      if(document.activeElement !== ta) ta.value = getDraft(uid);
+      // 默认只读态
+      if(!ta.dataset.editing){
+        ta.disabled = true;
+        ta.style.opacity = '0.85';
+        if(toggleBtn){ toggleBtn.textContent = '✎'; toggleBtn.title = '编辑'; }
       }
-      return;
+    } else {
+      // 未交卷：直接可编辑，即时保存
+      if(wrap) wrap.style.display = '';
+      if(view) view.style.display = 'none';
+      ta.disabled = false;
+      ta.style.opacity = '1';
+      ta.dataset.editing = '';
+      if(toggleBtn){ toggleBtn.style.display = 'none'; }
+      if(document.activeElement !== ta) ta.value = getDraft(uid);
     }
-    if(wrap) wrap.style.display = '';
-    if(view) view.style.display = 'none';
-    // 仅在该文本域未聚焦时回填，避免打断正在输入的内容
-    if(document.activeElement !== ta) ta.value = getDraft(uid);
-    // 输入即时落库（仅绑定一次，currentIndex 在事件触发时取最新值）
+    // 输入即时落库 + 编辑/保存切换（仅绑定一次）
     if(!ta.dataset.bound){
       ta.dataset.bound = '1';
       ta.addEventListener('input', () => {
         const q2 = practiceQuestions[currentIndex];
         if(q2) setDraft(q2._uid, ta.value);
       });
+      // 切换按钮：交卷后 编辑↔保存
+      if(toggleBtn){
+        toggleBtn.addEventListener('click', () => {
+          if(!practiceSubmitted) return;
+          if(ta.dataset.editing === '1'){
+            // 保存
+            const q2 = practiceQuestions[currentIndex];
+            if(q2) setDraft(q2._uid, ta.value);
+            ta.disabled = true;
+            ta.style.opacity = '0.85';
+            ta.dataset.editing = '';
+            toggleBtn.textContent = '✎';
+            toggleBtn.title = '编辑';
+          } else {
+            // 进入编辑
+            ta.disabled = false;
+            ta.style.opacity = '1';
+            ta.dataset.editing = '1';
+            toggleBtn.textContent = '✓';
+            toggleBtn.title = '保存';
+            ta.focus();
+          }
+        });
+      }
+    }
+    // 未交卷时隐藏按钮，交卷后显示按钮
+    if(toggleBtn){
+      toggleBtn.style.display = practiceSubmitted ? '' : 'none';
     }
   }
 
@@ -2367,29 +3081,72 @@
     const section = document.getElementById('ans-section');
     if(!card) return;
     if(section) section.style.display = '';
+    card.classList.toggle('subjective-ans', isSubjective(q));
     const ans = practiceState.answers[currentIndex];
     const r = judgeOne(q, ans);
     const yourAns = ans || '未作答';
     const correctAns = isVerified(q) ? (q.answer || '—') : '待校验';
     const yourClass = r.state === 'correct' ? 'right' : (r.state === 'wrong' ? 'wrong' : 'pending');
     const correctClass = isVerified(q) ? 'right' : 'pending';
-    const maxScore = q.type === 'multi' ? 2 : (Number(q.score) || 1);
-    const pts = isVerified(q) ? maxScore + ' 分' : '不计分';
-    const ruleText = isSubjective(q)
-      ? '分析题/综合题由考生手动判分，系统不自动计入错题。'
-      : (q.type === 'multi' ? '多选需全部选对且无错选方得 2 分，少选 / 多选 / 错选均不得分' : '单选选对即得 1 分');
-    card.innerHTML =
-      '<div class="ans-box">' +
-        '<div class="ab ' + correctClass + '"><div class="l">正确答案</div><div class="v">' + fmtRich(correctAns) + '</div></div>' +
-        '<div class="ab ' + yourClass + '"><div class="l">你的答案</div><div class="v">' + fmtRich(yourAns) + '</div></div>' +
-      '</div>' +
-      '<div class="rate-row"><span>本题分值</span><span class="rate-bar"><i style="width:' + (r.state === 'correct' ? 100 : 0) + '%;background:' + (r.state === 'correct' ? 'var(--color-success)' : 'var(--color-danger)') + '"></i></span><b>' + pts + '</b></div>' +
-      '<div class="exp">' +
-        '<p><b>题型：</b>' + getTypeLabel(q.type) + (isObjective(q) ? ' · 共 ' + Object.keys(q.options).length + ' 个选项' : '') + '</p>' +
-        (isVerified(q)
-          ? '<p><b>判分规则：</b>' + ruleText + '</p>'
-          : '<p><b>说明：</b>本题暂无平台标准答案，作答不计入得分，统一标注为「待校验」。</p>') +
+    // 主观题：交卷后保留手动判分（判对 / 判错 / 得分），其余判定信息不展示
+    let extraHtml = '';
+    if(isSubjective(q) && practiceSubmitted){
+      const maxS = r.max || maxScore(q);
+      const g = getManualGrade(q._uid);
+      const scoreVal = g ? (g.score || maxS) : maxS;
+      extraHtml = '<div class="manual-grade" style="margin-top:12px;padding:10px 12px;background:var(--color-surface-2);border-radius:var(--radius-card);display:flex;gap:8px;align-items:center;flex-wrap:wrap">' +
+        '<span style="font-size:13px;color:var(--color-text-secondary)">手动判分：</span>' +
+        '<button class="btn btn-sm btn-grade-correct ' + (g && g.state === 'correct' ? 'btn-success' : 'btn-ghost') + '" data-grade="correct">判对</button>' +
+        '<button class="btn btn-sm btn-grade-wrong ' + (g && g.state === 'wrong' ? 'btn-danger' : 'btn-ghost') + '" data-grade="wrong">判错</button>' +
+        '<label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--color-text-secondary)">得分 <input type="number" class="input-grade-score" value="' + scoreVal + '" min="0" max="' + maxS + '" style="width:56px;padding:5px 8px;border:1px solid var(--color-border);border-radius:var(--radius-btn);font-size:13px"></label>' +
+        '<span style="font-size:13px;color:var(--color-text-secondary)">满分 ' + maxS + ' 分</span>' +
       '</div>';
+    }
+    card.innerHTML =
+      '<div class="ans-sections">' +
+        '<div class="ans-sec your-ans ' + yourClass + '">' +
+          '<div class="ans-sec-h">我的作答</div>' +
+          '<div class="ans-sec-v">' + fmtRich(yourAns) + '</div>' +
+        '</div>' +
+        '<div class="ans-sec correct-ans ' + correctClass + '">' +
+          '<div class="ans-sec-h">正确答案</div>' +
+          '<div class="ans-sec-v">' + fmtRich(correctAns) + '</div>' +
+        '</div>' +
+        (q.analysis ?
+          '<div class="ans-sec analysis-sec">' +
+            '<div class="ans-sec-h">解析</div>' +
+            '<div class="ans-sec-v">' + fmtRich(q.analysis) + '</div>' +
+          '</div>' : '') +
+      '</div>' +
+      extraHtml;
+    // 绑定主观题手动判分
+    if(isSubjective(q) && practiceSubmitted){
+      const maxS = r.max || maxScore(q);
+      card.querySelectorAll('.btn-grade-correct,.btn-grade-wrong').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const state = btn.getAttribute('data-grade');
+          const si = card.querySelector('.input-grade-score');
+          const score = parseFloat(si ? si.value : maxS) || maxS;
+          setManualGrade(q._uid, state, score);
+          q.manualGrade = { state, score };
+          renderRightPanel(q);
+          renderSheet();
+          updateProgress();
+          updateNavCounts();
+        });
+      });
+    }
+  }
+
+  function maxScore(q){
+    return questionMaxScore(q);
+  }
+
+  // 统一满分计算：优先q.score，其次按题型默认值
+  function questionMaxScore(q){
+    if(Number(q.score) > 0) return Number(q.score);
+    if(q.type === 'multi' || q.type === 'multiple') return 2;
+    return 1;
   }
 
   function toggleRightPanel(forceExpand){
@@ -2409,6 +3166,10 @@
     if(bar) bar.style.width = (total ? done / total * 100 : 0) + '%';
     setText('prog-done', done);
     setText('prog-total', total);
+    setText('pb-prog-done', done);
+    setText('pb-prog-total', total);
+    const pbar = document.getElementById('pb-prog-bar');
+    if(pbar) pbar.style.width = (total ? done / total * 100 : 0) + '%';
     const big = document.querySelector('.sheet-top .big');
     if(big) big.textContent = done;
     const tot = document.querySelector('.sheet-top .tot');
@@ -2478,7 +3239,7 @@
       if(q._uid) removeFavorite(q._uid);
     } else {
       practiceState.starred[currentIndex] = true;
-      if(q._uid) addFavorite(q._uid);
+      if(q._uid) addFavorite(q._uid, q);
     }
     saveState();
     const btn = document.getElementById('btn-star');
@@ -2487,6 +3248,24 @@
     renderLegend();
     updateNavCounts();
   }
+  function toggleError(){
+    const q = practiceQuestions[currentIndex];
+    if(!q) return;
+    if(!practiceState.errorCorrected) practiceState.errorCorrected = {};
+    if(practiceState.errorCorrected[currentIndex]){
+      delete practiceState.errorCorrected[currentIndex];
+      if(q._uid) removeErrorCorrected(q._uid);
+    } else {
+      practiceState.errorCorrected[currentIndex] = true;
+      if(q._uid) addErrorCorrected(q._uid, q);
+    }
+    saveState();
+    const btn = document.getElementById('btn-error');
+    if(btn) btn.classList.toggle('on-error', !!practiceState.errorCorrected[currentIndex]);
+    updateCellStatus(currentIndex);
+    renderLegend();
+  }
+
 
   // ---- 切题 ----
   function prevQuestion(){
@@ -2516,6 +3295,11 @@
   }
 
   // ---- 计时器（章节/错题：正向；机考：剩余时间倒计时，归零自动交卷） ----
+  let __timerStartWall__ = 0;
+  function __currentElapsed__(){
+    if(!__timerStartWall__) return practiceState.elapsed || 0;
+    return (practiceState.elapsed || 0) + Math.floor((Date.now() - __timerStartWall__) / 1000);
+  }
   function startTimer(){
     stopTimerSilent();
     updateTimerDisplay();
@@ -2525,12 +3309,13 @@
       return; // 交卷后不再计时
     }
     if(timerEl) timerEl.classList.add('live');
+    __timerStartWall__ = Date.now();
     practiceTimerId = setInterval(() => {
-      practiceState.elapsed++;
       updateTimerDisplay();
-      if(practiceState.elapsed % 5 === 0) saveState();
+      const cur = __currentElapsed__();
+      if(cur % 5 === 0) saveState();
       // 机考倒计时归零 → 停止计时并自动交卷
-      if(practiceIsExam && practiceExamDuration > 0 && practiceState.elapsed >= practiceExamDuration){
+      if(practiceIsExam && practiceExamDuration > 0 && cur >= practiceExamDuration){
         stopTimerSilent();
         saveState();
         if(!practiceSubmitted) submitPaper(true);
@@ -2539,18 +3324,25 @@
   }
   function stopTimerSilent(){
     if(practiceTimerId){ clearInterval(practiceTimerId); practiceTimerId = null; }
+    if(__timerStartWall__){
+      practiceState.elapsed = __currentElapsed__();
+      __timerStartWall__ = 0;
+    }
     const timerEl = document.querySelector('.timer');
     if(timerEl) timerEl.classList.remove('live');
   }
   function stopTimer(){ stopTimerSilent(); saveState(); }
   function updateTimerDisplay(){
+    const cur = __currentElapsed__();
     if(practiceIsExam && practiceExamDuration > 0 && !practiceSubmitted){
-      const remain = Math.max(0, practiceExamDuration - practiceState.elapsed);
+      const remain = Math.max(0, practiceExamDuration - cur);
       setText('clock', fmtSec(remain));
+      setText('pb-clock', fmtSec(remain));
       setText('info-elapsed', fmtSec(remain));
     } else {
-      setText('clock', fmtSec(practiceState.elapsed));
-      setText('info-elapsed', fmtSec(practiceState.elapsed));
+      setText('clock', fmtSec(cur));
+      setText('pb-clock', fmtSec(cur));
+      setText('info-elapsed', fmtSec(cur));
     }
   }
 
@@ -2575,7 +3367,56 @@
       sess.pending = sc.pending;
       sess.total = sc.total;
       sess.answers = {};
-      practiceQuestions.forEach(q => { if(q._uid) sess.answers[q._uid] = practiceState.answers[practiceQuestions.indexOf(q)] || ''; });
+      practiceQuestions.forEach((q, i) => { if(q._uid && practiceState.answers[i]) sess.answers[q._uid] = practiceState.answers[i]; });
+      // 冗余存储完整题目快照（题目+正确答案+我的作答+解析），使 history.json 自包含可读
+      sess.questions = practiceQuestions.map((q, i) => ({
+        uid: q._uid || '',
+        chapter: q.chapter || '',
+        section: q.section || '',
+        type: q.type || '',
+        raw_type: q.raw_type || '',
+        ptype: q.ptype || '',
+        parentNo: q.parentNo || null,
+        subNo: q.subNo || null,
+        stem: q.stem || '',
+        options: q.options || [],
+        answer: q.answer || '',
+        analysis: q.analysis || '',
+        score: q.score || 0,
+        user_answer: practiceState.answers[i] || ''
+      }));
+      // 答错的题写入 wrong.json（完整题目+我的作答+解析+错误次数）
+      try{
+        const wkey = 'wrong_list_' + getSubject();
+        const wraw = store.get(wkey);
+        const wlist = wraw ? (JSON.parse(wraw) || []) : [];
+        const wmap = {};
+        wlist.forEach(w => { if(w.uid) wmap[w.uid] = w; });
+        practiceQuestions.forEach((q, i) => {
+          if(!q._uid) return;
+          const ua = practiceState.answers[i] || '';
+          const r = judgeOne(q, ua);
+          if(r.state === 'wrong'){
+            const snap = {
+              uid: q._uid,
+              chapter: q.chapter || '',
+              section: q.section || '',
+              type: q.type || '',
+              raw_type: q.raw_type || '',
+              stem: q.stem || '',
+              options: q.options || [],
+              answer: q.answer || '',
+              analysis: q.analysis || '',
+              lastAnswer: ua,
+              wrongCount: (wmap[q._uid] ? (wmap[q._uid].wrongCount || 0) : 0) + 1,
+              lastWrongTime: Date.now(),
+              mastered: wmap[q._uid] ? (wmap[q._uid].mastered || false) : false
+            };
+            wmap[q._uid] = snap;
+          }
+        });
+        store.set(wkey, JSON.stringify(Object.values(wmap)));
+      }catch(e){ console.warn('[quiz] 错题写入失败:', e); }
       setCurrentSession(sess);
       archiveCurrentSession();
     }
@@ -2591,7 +3432,7 @@
     if(colRight) colRight.style.display = '';
     const btnSubmit = document.getElementById('btn-submit');
     if(btnSubmit){
-      btnSubmit.textContent = '已交卷';
+      btnSubmit.textContent = '交卷';
       btnSubmit.disabled = true;
       btnSubmit.classList.remove('btn-primary');
       btnSubmit.classList.add('btn-secondary');
@@ -2631,7 +3472,7 @@
     const sess = newSession(practiceIsWrongRandom ? 'wrong_random' : (practiceIsExam ? 'exam' : 'chapter'), practiceChapter, practiceSection);
     setCurrentSession(sess);
     practiceSessionId = sess.id;
-    practiceState = { answers: {}, marked: {}, starred: {}, elapsed: 0, lastActive: Date.now(), submitted: false, currentIndex: 0 };
+    practiceState = { answers: {}, marked: {}, starred: {}, errorCorrected: {}, elapsed: 0, lastActive: Date.now(), submitted: false, currentIndex: 0 };
     practiceSubmitted = false;
     practiceQuestions.forEach(q => { q.user_answer = ''; });
     // 机考重做：重新抽一套全新试卷
@@ -2661,7 +3502,6 @@
     startTimer();
     updateNavCounts();
   }
-
   // ---- 练习历史（每次训练独立留痕，可回溯） ----
   function renderHistoryList(){
     const list = document.getElementById('history-list');
@@ -2720,6 +3560,7 @@
     on('btn-next', nextQuestion);
     on('btn-mark', toggleMark);
     on('btn-star', toggleStar);
+    on('btn-error', toggleError);
     on('btn-submit', submitPaper);
     on('btn-review', closeModal);
     on('btn-close-modal', closeModal);
@@ -2760,29 +3601,18 @@
     const sidebar = document.querySelector('.sidebar');
     const main = document.querySelector('.main');
     if(!sidebar) return;
-    // 在 brand 区插入折叠按钮
-    const brand = sidebar.querySelector('.sb-brand');
-    if(brand && !document.getElementById('sb-toggle')){
-      const btn = document.createElement('button');
-      btn.id = 'sb-toggle';
-      btn.className = 'sb-toggle';
-      btn.title = '收起菜单';
-      btn.setAttribute('aria-label', '收起左侧菜单');
-      btn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg>';
-      btn.addEventListener('click', () => toggleSidebar(false));
-      brand.appendChild(btn);
-    }
-    // floating 展开按钮（折叠后显示）
+    // 三道杠浮动按钮（在屏幕最左侧），双向切换展开/收起
     if(!document.getElementById('sb-toggle-float')){
       const floatBtn = document.createElement('button');
       floatBtn.id = 'sb-toggle-float';
       floatBtn.className = 'sb-toggle-float';
-      floatBtn.title = '展开菜单';
-      floatBtn.setAttribute('aria-label', '展开左侧菜单');
+      floatBtn.title = '收起菜单';
+      floatBtn.setAttribute('aria-label', '收起左侧菜单');
       floatBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
-      floatBtn.addEventListener('click', () => toggleSidebar(true));
+      floatBtn.addEventListener('click', () => toggleSidebar());
       document.body.appendChild(floatBtn);
     }
+
     // 恢复上次状态
     try{
       const raw = store.get(sidebarStateKey());
@@ -2797,6 +3627,17 @@
     sidebar.classList.toggle('collapsed', collapsed);
     if(main) main.classList.toggle('expanded', collapsed);
     document.body.classList.toggle('sidebar-collapsed', collapsed);
+    // 更新三道杠浮动按钮的title
+    const floatBtn = document.getElementById('sb-toggle-float');
+    if(floatBtn){
+      if(collapsed){
+        floatBtn.title = '展开菜单';
+        floatBtn.setAttribute('aria-label', '展开左侧菜单');
+      } else {
+        floatBtn.title = '收起菜单';
+        floatBtn.setAttribute('aria-label', '收起左侧菜单');
+      }
+    }
     try{ store.set(sidebarStateKey(), collapsed ? '1' : '0'); }catch(e){}
   }
   function toggleSidebar(expand){
@@ -2810,8 +3651,8 @@
   // ============ 数据备份 / 恢复（导出 JSON 文件 + 导入合并，7 页侧边栏共享入口） ============
   function collectBackupKeys(){
     const set = new Set();
-    const sub = APP.subject || 'accounting';
-    ['answers_','sessions_','current_session_','favorites_','drafts_','manual_grades_','wrong_mastered_','notes_','sidebar_collapsed_'].forEach(p => set.add(p + sub));
+    const sub = getSubject();
+    ['answers_','sessions_','current_session_','favorites_','drafts_','manual_grades_','wrong_mastered_','wrong_list_','notes_','sidebar_collapsed_'].forEach(p => set.add(p + sub));
     let all = [];
     try{ if(window.localStorage) all = Object.keys(window.localStorage); }catch(e){}
     all.forEach(k => { if(k.indexOf('practice_state_') === 0) set.add(k); });
@@ -2930,13 +3771,44 @@
     }catch(e){}
   }
 
+  // file:// 模式下：根据 bank_*.js 动态计算各科目 hasData，补充到 subjects 列表
+  function initFileModeSubjects(){
+    if(__SERVER_MODE__ || __SUPABASE_MODE__) return;
+    const allSubj = [];
+    EXAMS.forEach(e => e.subjects.forEach(s => allSubj.push({ id: s.id, name: s.name })));
+    allSubj.forEach(s => {
+      let has = false;
+      try {
+        const bc = window.BANK_CHAPTERS;
+        if(bc && bc[s.id] && bc[s.id].chapters && Object.keys(bc[s.id].chapters).length > 0) has = true;
+      } catch(e){}
+      if(!has){
+        try {
+          const bi = window.BANK_INTENSIVE;
+          if(bi && Array.isArray(bi[s.id]) && bi[s.id].length > 0) has = true;
+        } catch(e){}
+      }
+      if(!has){
+        try {
+          const bp = window.BANK_PAPERS;
+          if(bp && Array.isArray(bp[s.id]) && bp[s.id].length > 0) has = true;
+        } catch(e){}
+      }
+      s.hasData = has;
+    });
+    subjects.length = 0;
+    allSubj.forEach(s => subjects.push(s));
+    APP.subjects = allSubj;
+  }
+  initFileModeSubjects();
+
   async function seedFromServer(){
     if(__SUPABASE_MODE__){
       showCloudStatus('connecting');
       try{
         const subj = getSubject();
         const map = await (window.SupaStore || window.CloudStore).loadAll(subj);
-        ['history','wrong','favorites','notes','answers'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
+        ['history','wrong','favorites','error_corrected','notes','answers'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
         // 首次上云：把本机旧 localStorage 业务记录并入云端命名空间，随后写入（避免丢历史）
         try{
           for(let i = 0; i < window.localStorage.length; i++){
@@ -2947,7 +3819,7 @@
               if(v != null){ try{ __fileCache__[f][k] = JSON.parse(v); }catch(e){ __fileCache__[f][k] = v; } }
             }
           }
-          __scheduleFlush__('history'); __scheduleFlush__('wrong'); __scheduleFlush__('favorites'); __scheduleFlush__('notes'); __scheduleFlush__('answers');
+          __scheduleFlush__('history'); __scheduleFlush__('wrong'); __scheduleFlush__('favorites'); __scheduleFlush__('error_corrected'); __scheduleFlush__('notes'); __scheduleFlush__('answers');
         }catch(e){}
         showCloudStatus('ok');
         return; // 题库来自 bank_*.js（IIFE 初始化），无需 /api
@@ -2974,7 +3846,7 @@
         }
       }catch(e){}
       // 1) 用户数据文件（按当前科目目录）
-      const files = ['history','wrong','favorites','notes','answers'];
+      const files = ['history','wrong','favorites','error_corrected','notes','answers'];
       await Promise.all(files.map(async (f) => {
         try{
           const r = await fetch('/api/data/' + subj + '/' + f + '.json', { cache:'no-store' });
@@ -2982,9 +3854,10 @@
         }catch(e){ /* 单文件失败不影响其它 */ }
       }));
       // 2) 题库（按当前科目目录）
-      const [cd, pp] = await Promise.all([
+      const [cd, pp, ip] = await Promise.all([
         fetch('/api/data/' + subj + '/chapters.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
         fetch('/api/data/' + subj + '/papers.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/data/' + subj + '/intensive.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
       ]);
       if(cd){
         APP.subject = cd.subject;
@@ -2998,6 +3871,7 @@
         APP.chapters = cd.chapters || {};
       }
       if(pp){ APP.papers = pp; }
+      if(ip){ APP.intensivePapers = ip; }
       // 3) 一次性迁移：
       //    a) localStorage 旧中文科目后缀 key（sessions_会计）→ 新 id 后缀（sessions_accounting）
       //    b) localStorage 中业务 key 若不在文件缓存里，并入文件缓存并落盘，data/ 即唯一真相
@@ -3193,7 +4067,7 @@
         '<div class="stem">' + fmtRich(stem) + '</div>' +
         '<div class="opts">' + optsHtml + '</div>' +
         verdictHtml +
-        (q.explain ? '<div class="exp">' + fmtRich(q.explain) + '</div>' : '') +
+        (q.analysis ? '<div class="exp">' + fmtRich(q.analysis) + '</div>' : '') +
       '</article>';
     });
     return html;
@@ -3523,7 +4397,7 @@
         '<div class="stem">' + fmtRich(stem) + '</div>' +
         '<div class="opts locked">' + optsHtml + '</div>' +
         verdictHtml +
-        (q.explain ? '<div class="exp">' + fmtRich(q.explain) + '</div>' : '') +
+        (q.analysis ? '<div class="exp">' + fmtRich(q.analysis) + '</div>' : '') +
       '</article>';
     });
 
@@ -3606,6 +4480,7 @@ const VIEW_MAP = {
   practice:  { render: () => { renderPractice(); }, title: '做题' },
   wrong:     { render: () => { renderWrongQuestions(); }, title: '错题本' },
   favorites: { render: () => { renderFavorites(); }, title: '收藏' },
+  'error-corrected': { render: () => { renderErrorCorrected(); }, title: '待纠错' },
   history:   { render: () => { renderPracticeHistory(); }, title: '练习历史' },
   review:    { render: () => { renderHistoryReview(); }, title: '复盘' },
   note:      { render: () => { renderNotes(); }, title: '学习笔记' },
@@ -3617,6 +4492,10 @@ function getCurrentView(){
 function mountView(name){
   const root = document.getElementById('view-root');
   if(!root) return;
+  document.body.classList.remove('mode-select');
+  // 答题卡页面（真正做题中）不使用顶部黑底栏，恢复白色顶栏；选套卷页仍保留黑底
+  const isSelectMode = /[?&]mode=select/.test(location.hash) || /[?&]mode=select/.test(location.search);
+  document.body.classList.toggle('mode-practice', name === 'practice' && !isSelectMode);
   const tpl = document.getElementById('tpl-' + name);
   root.innerHTML = tpl ? tpl.innerHTML : '';
   if(name === 'practice'){
@@ -3636,6 +4515,7 @@ function mountView(name){
   }
   const v = VIEW_MAP[name] || VIEW_MAP.dashboard;
   v.render();
+  renderBreadcrumbs();
   renderCountdown();
   ensureSplitter();
   window.scrollTo(0, 0);
@@ -3662,6 +4542,33 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('hashchange', () => {
     syncSidebarActive();
     mountView(getCurrentView());
+  });
+  // 键盘快捷键：A/B/C/D选选项、Enter下一题、Esc关模态
+  document.addEventListener('keydown', (e) => {
+    // 输入框/文本域聚焦时不触发
+    const tag = document.activeElement && document.activeElement.tagName;
+    if(tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+    // 只在练习页面生效
+    if(getCurrentView() !== 'practice') return;
+    const key = e.key.toUpperCase();
+    // A/B/C/D选择选项
+    if(['A','B','C','D','E','F'].includes(key) && !e.ctrlKey && !e.metaKey && !e.altKey){
+      e.preventDefault();
+      selectOption(key);
+      return;
+    }
+    // Enter下一题
+    if(e.key === 'Enter' && !e.shiftKey){
+      e.preventDefault();
+      if(currentIndex < practiceQuestions.length - 1){
+        goQuestion(currentIndex + 1);
+      }
+      return;
+    }
+    // Esc关闭模态框
+    if(e.key === 'Escape'){
+      closeModal();
+    }
   });
 });
   // 测试钩子：仅当显式开启测试模式(window.__QUIZ_TEST__=true)时暴露内部函数，正常使用无任何影响

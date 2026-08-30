@@ -1,8 +1,14 @@
-// 在线模式配置（Cloudflare Pages Functions + KV，全免费）。
-// apiBase：留空 = 与前端同域（推荐，部署到 Pages 后自动同域，无跨域问题）。
-//   若前端与 API 分离部署才需填完整地址，如 'https://xxx.pages.dev'。
-// requirePassphrase：true = 打开时要求输入访问口令（各设备一致则记录共享）。
-window.__CLOUDFLARE_CONFIG__ = {
-  apiBase: '',
-  requirePassphrase: true
-};
+// ============================================================
+// 本地/server 模式配置（刷题软件主目录，双击「启动刷题.bat」使用）
+// 本文件刻意【不】激活在线存储：本地页面按纯本地模式运行，
+// 数据读写电脑上的 data/ 文件夹，不受网络影响。
+//
+// 在线模式的使用方式：
+//   1) 手机/平板/其他电脑 → 打开已部署的网页版：
+//      https://quiz-app-1iy.pages.dev  （输入口令，记录存云端）
+//   2) 本地与云端数据互通 → 双击「双向同步.bat」一键双向同步
+//
+// 若你【确实】想让本地页面也直连云端在线模式，取消下面一行的注释，
+// 填上云端地址即可（此时本地页面数据将直接读写云端，不再经过本地 data/）：
+// window.__CLOUDFLARE_CONFIG__ = { apiBase: 'https://quiz-app-1iy.pages.dev', requirePassphrase: true };
+// ============================================================
