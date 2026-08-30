@@ -3775,31 +3775,36 @@
   // （云端模式只同步用户数据，题库仍由本地 bank_*.js 提供，因此也需要计算 hasData）
   function initFileModeSubjects(){
     if(__SERVER_MODE__) return;
-    const allSubj = [];
-    EXAMS.forEach(e => e.subjects.forEach(s => allSubj.push({ id: s.id, name: s.name })));
-    allSubj.forEach(s => {
-      let has = false;
-      try {
-        const bc = window.BANK_CHAPTERS;
-        if(bc && bc[s.id] && bc[s.id].chapters && Object.keys(bc[s.id].chapters).length > 0) has = true;
-      } catch(e){}
-      if(!has){
+    try {
+      const allSubj = [];
+      EXAMS.forEach(e => e.subjects.forEach(s => allSubj.push({ id: s.id, name: s.name })));
+      allSubj.forEach(s => {
+        let has = false;
         try {
-          const bi = window.BANK_INTENSIVE;
-          if(bi && Array.isArray(bi[s.id]) && bi[s.id].length > 0) has = true;
+          const bc = window.BANK_CHAPTERS;
+          if(bc && bc[s.id] && bc[s.id].chapters && Object.keys(bc[s.id].chapters).length > 0) has = true;
         } catch(e){}
-      }
-      if(!has){
-        try {
-          const bp = window.BANK_PAPERS;
-          if(bp && Array.isArray(bp[s.id]) && bp[s.id].length > 0) has = true;
-        } catch(e){}
-      }
-      s.hasData = has;
-    });
-    subjects.length = 0;
-    allSubj.forEach(s => subjects.push(s));
-    APP.subjects = allSubj;
+        if(!has){
+          try {
+            const bi = window.BANK_INTENSIVE;
+            if(bi && Array.isArray(bi[s.id]) && bi[s.id].length > 0) has = true;
+          } catch(e){}
+        }
+        if(!has){
+          try {
+            const bp = window.BANK_PAPERS;
+            if(bp && Array.isArray(bp[s.id]) && bp[s.id].length > 0) has = true;
+          } catch(e){}
+        }
+        s.hasData = has;
+      });
+      subjects.length = 0;
+      allSubj.forEach(s => subjects.push(s));
+      APP.subjects = allSubj;
+      window.__debug_subjects = allSubj; // 调试用
+    } catch(e) {
+      console.error('initFileModeSubjects error:', e);
+    }
   }
   initFileModeSubjects();
 
@@ -4533,6 +4538,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   initBackupUI();
   initNotesUI();
   migrateImportedAnswers();
+  initFileModeSubjects(); // 确保在渲染前重新计算 hasData
   const current = getSubject();
   const sub = subjects.find(s => s.id === current);
   applyTheme(current);
