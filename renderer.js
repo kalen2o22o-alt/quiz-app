@@ -3774,7 +3774,7 @@
   // file:// / 云端模式下：根据 bank_*.js 动态计算各科目 hasData，补充到 subjects 列表
   // （云端模式只同步用户数据，题库仍由本地 bank_*.js 提供，因此也需要计算 hasData）
   function initFileModeSubjects(){
-    if(__SERVER_MODE__) return;
+    // 题库始终从 bank_*.js 加载，无论本地/服务器/云端模式都需要计算 hasData
     try {
       const allSubj = [];
       EXAMS.forEach(e => e.subjects.forEach(s => allSubj.push({ id: s.id, name: s.name })));
