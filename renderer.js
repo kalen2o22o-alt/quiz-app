@@ -3771,9 +3771,10 @@
     }catch(e){}
   }
 
-  // file:// 模式下：根据 bank_*.js 动态计算各科目 hasData，补充到 subjects 列表
+  // file:// / 云端模式下：根据 bank_*.js 动态计算各科目 hasData，补充到 subjects 列表
+  // （云端模式只同步用户数据，题库仍由本地 bank_*.js 提供，因此也需要计算 hasData）
   function initFileModeSubjects(){
-    if(__SERVER_MODE__ || __SUPABASE_MODE__) return;
+    if(__SERVER_MODE__) return;
     const allSubj = [];
     EXAMS.forEach(e => e.subjects.forEach(s => allSubj.push({ id: s.id, name: s.name })));
     allSubj.forEach(s => {
