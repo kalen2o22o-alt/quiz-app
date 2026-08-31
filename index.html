@@ -2522,6 +2522,8 @@ body.left-collapsed .left-toggle-float{display:none !important}
 /* ============ 移动端适配（≤767px 手机） ============ */
 /* 移动端导航组件默认隐藏（仅 ≤767px 显示，避免 PC 端占位破坏布局） */
 .m-nav-btn,.m-drawer,.m-drawer-mask{display:none}
+/* 手机端答题卡左右悬浮面板遮罩：默认全局隐藏（避免 PC 端占 grid 位破坏三栏布局） */
+.mobile-panel-mask{display:none}
 
 @media (max-width:767px){
   /* P1-5：移动端不使用自定义书法字体（5.25MB），改用系统楷体，减少首屏带宽 */
@@ -2666,8 +2668,6 @@ body.left-collapsed .left-toggle-float{display:none !important}
 .crumb{flex:1;min-width:0}
 /* P1-3：触控目标最小44px */
 .section-toggle, .ico-btn, .m-nav-btn{min-width:44px;min-height:44px}
-/* sb-toggle-float保持原始尺寸30×44 */
-.sb-toggle-float{min-width:30px !important;min-height:44px !important;width:30px !important}
 .tb-back{padding:8px 14px;min-height:36px}
 /* P2-1：安全区适配 */
 @media (max-width:767px){
@@ -3863,8 +3863,6 @@ body.left-collapsed .left-toggle-float{display:none !important}
 .crumb{flex:1;min-width:0}
 /* P1-3：触控目标最小44px */
 .section-toggle, .ico-btn, .m-nav-btn{min-width:44px;min-height:44px}
-/* sb-toggle-float保持原始尺寸30×44 */
-.sb-toggle-float{min-width:30px !important;min-height:44px !important;width:30px !important}
 .tb-back{padding:8px 14px;min-height:36px}
 /* P2-1：安全区适配 */
 @media (max-width:767px){
