@@ -2,7 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>题刷刷</title>
 <style>
 /* ============================ 1. 设计令牌 ============================ */
@@ -2577,6 +2577,44 @@ body.left-collapsed .left-toggle-float{display:none !important}
   .stem{font-size:15px;line-height:1.7}
   .ans-line{font-size:13.5px}
 
+  /* ===== 手机端：原来的紧贴屏幕按钮启用悬浮模式 ===== */
+  /* 左右栏默认隐藏在屏幕外 */
+  .col-left{
+    position:fixed !important;top:0;left:0;bottom:0;
+    width:85% !important;max-width:340px !important;min-width:280px;z-index:201;
+    background:#F4F3EF;overflow-y:auto;
+    transform:translateX(-100%);transition:transform .3s ease;
+    padding:16px 12px;box-shadow:4px 0 20px rgba(0,0,0,.15);
+  }
+  .col-right{
+    position:fixed !important;top:0;right:0;bottom:0;
+    width:85% !important;max-width:340px !important;min-width:280px;z-index:201;
+    background:#F4F3EF;overflow-y:auto;
+    transform:translateX(100%);transition:transform .3s ease;
+    padding:16px 12px;box-shadow:-4px 0 20px rgba(0,0,0,.15);
+  }
+  /* 悬浮显示状态 */
+  body.mobile-left-open .col-left{transform:translateX(0)}
+  body.mobile-right-open .col-right{transform:translateX(0)}
+  /* 遮罩层 */
+  .mobile-panel-mask{
+    display:none;position:fixed;inset:0;z-index:200;
+    background:rgba(0,0,0,.3);backdrop-filter:blur(2px);
+  }
+  body.mobile-left-open .mobile-panel-mask,
+  body.mobile-right-open .mobile-panel-mask{display:block}
+  /* 手机端：分隔条只显示按钮，不显示拖拽条 */
+  .v-splitter{display:block !important;width:28px !important;background:transparent !important;border:none !important;cursor:default !important}
+  .v-splitter:hover{background:transparent !important}
+  /* 手机端：中栏显示草稿，右栏隐藏草稿 */
+  .mobile-draft{display:block !important;margin-top:12px}
+  .desktop-draft{display:none !important}
+  /* 电脑端：右栏显示草稿，中栏隐藏草稿 */
+  @media (min-width:768px){
+    .mobile-draft{display:none !important}
+    .desktop-draft{display:block !important}
+  }
+
   /* —— 章节训练 —— */
   .ch-head{padding:14px 16px;gap:12px}
   .filters{margin:14px 0 16px;gap:8px}
@@ -2613,13 +2651,42 @@ body.left-collapsed .left-toggle-float{display:none !important}
   .col-left.sticky .card {
     overflow: hidden;
   }
+
+/* ============================ 手机端显示修复（评测报告） ============================ */
+/* P0-1：首页hero装饰圆溢出导致横向滚动 */
+@media (max-width:767px){
+  .hero{overflow:hidden}
+}
+/* P0-2：错题本标签竖排修复 */
+.wq-src{flex:0 0 auto;white-space:nowrap}
+.wq-head span:first-child{white-space:normal;flex:1;min-width:0}
+/* P1-1：顶栏面包屑重叠修复 */
+.topbar{flex-wrap:wrap;row-gap:6px}
+.crumb{flex:1;min-width:0}
+/* P1-3：触控目标最小44px */
+.section-toggle, .ico-btn, .sb-toggle-float, .m-nav-btn{min-width:44px;min-height:44px}
+.tb-back{padding:8px 14px;min-height:36px}
+/* P2-1：安全区适配 */
+@media (max-width:767px){
+  .m-drawer-mask, .bottom-float-bar, .q-foot, .practice-bar{
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+}
+/* P2-3：可滚动tabs视觉提示 */
+.history-tabs, .seg{
+  position:relative;
+}
+.history-tabs::after, .seg::after{
+  content:"";
+  position:absolute;right:0;top:0;bottom:0;width:24px;
+  background:linear-gradient(to right, transparent, var(--color-surface, #F4F3EF));
+  pointer-events:none;
+}
+
 </style>
 </head>
 <body>
-<!-- ===== 移动端导航（≤767px 显示：汉堡按钮 + 抽屉菜单） ===== -->
-<button class="m-nav-btn" id="mNavBtn" type="button" aria-label="打开导航菜单">
-  <svg viewBox="0 0 24 24"><path d="M3.5 6.5h17M3.5 12h17M3.5 17.5h17"/></svg>
-</button>
+<!-- ===== 移动端导航（≤767px 显示：抽屉菜单，由sb-toggle-float触发） ===== -->
 <div class="m-drawer-mask" id="mDrawerMask"></div>
 <aside class="m-drawer" id="mDrawer">
   <div class="sb-brand">题刷刷</div>
@@ -2898,9 +2965,32 @@ body.left-collapsed .left-toggle-float{display:none !important}
         </div>
       </article>
 
+      <!-- 作答草稿（手机端显示在中栏，电脑端隐藏，由CSS控制） -->
+      <section class="card right-section mobile-draft" id="draft-section-mobile" data-section="draft" style="display:none">
+        <div class="card-h">
+          <h3>作答草稿</h3>
+          <div class="draft-actions" style="display:flex;gap:6px;margin-left:8px">
+            <button class="btn btn-sm btn-ghost" id="draft-toggle-btn-mobile" type="button" title="编辑">✎</button>
+          </div>
+          <button class="section-toggle" data-target="draft-section-mobile" title="折叠 / 展开" aria-label="折叠作答草稿">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+          </button>
+        </div>
+        <div class="card-b section-body" style="padding:4px 2px 2px">
+          <div class="draft-wrap" id="draft-wrap-mobile" style="padding:2px 3px;margin-top:0">
+            <textarea id="draft-input-mobile" class="draft-input" rows="6" placeholder="写下你的思路、疑点、易混点…" style="min-height:80px"></textarea>
+          </div>
+          <div class="draft-view-block" id="draft-view-mobile" style="display:none"></div>
+        </div>
+      </section>
+
       <section class="note-card" id="note-card" style="display:none"><!-- 笔记功能预留，由 JS 动态生成 --></section>
 
     </div>
+
+
+    <!-- 手机端悬浮面板遮罩 -->
+    <div class="mobile-panel-mask" id="mobilePanelMask"></div>
 
     <!-- ================= 右侧分隔条（可拖宽度 + 折叠右栏） ================= -->
     <div class="v-splitter" data-side="right">
@@ -2909,10 +2999,10 @@ body.left-collapsed .left-toggle-float{display:none !important}
       </button>
     </div>
 
-    <!-- ================= 右栏：作答草稿 + 正确答案与解析 ================= -->
+    <!-- ================= 右栏：作答草稿 + 正确答案与解析（电脑端） ================= -->
     <div class="col-right sticky" id="col-right">
-      <!-- 作答草稿 -->
-      <section class="card right-section" id="draft-section" data-section="draft">
+      <!-- 作答草稿（电脑端显示，手机端隐藏） -->
+      <section class="card right-section desktop-draft" id="draft-section" data-section="draft">
         <div class="card-h">
           <h3>作答草稿</h3>
           <div class="draft-actions" style="display:flex;gap:6px;margin-left:8px">
@@ -3462,6 +3552,31 @@ body.left-collapsed .left-toggle-float{display:none !important}
   </div>
 </div></template>
 <script>
+  // sb-toggle-float 控制移动端抽屉菜单
+  document.addEventListener('DOMContentLoaded', function(){
+    var sbToggle = document.querySelector('.sb-toggle-float');
+    var mDrawer = document.getElementById('mDrawer');
+    var mDrawerMask = document.getElementById('mDrawerMask');
+    if(sbToggle && mDrawer){
+      sbToggle.addEventListener('click', function(e){
+        e.stopPropagation();
+        var isOpen = mDrawer.classList.contains('open');
+        if(isOpen){
+          mDrawer.classList.remove('open');
+          if(mDrawerMask) mDrawerMask.classList.remove('show');
+        } else {
+          mDrawer.classList.add('open');
+          if(mDrawerMask) mDrawerMask.classList.add('show');
+        }
+      });
+    }
+    if(mDrawerMask){
+      mDrawerMask.addEventListener('click', function(){
+        mDrawer.classList.remove('open');
+        mDrawerMask.classList.remove('show');
+      });
+    }
+  });
   function toggleCh(id){
     var el = document.getElementById(id);
     el.classList.toggle('open');
@@ -3731,6 +3846,38 @@ body.left-collapsed .left-toggle-float{display:none !important}
   .col-left.sticky .card {
     overflow: hidden;
   }
+
+/* ============================ 手机端显示修复（评测报告） ============================ */
+/* P0-1：首页hero装饰圆溢出导致横向滚动 */
+@media (max-width:767px){
+  .hero{overflow:hidden}
+}
+/* P0-2：错题本标签竖排修复 */
+.wq-src{flex:0 0 auto;white-space:nowrap}
+.wq-head span:first-child{white-space:normal;flex:1;min-width:0}
+/* P1-1：顶栏面包屑重叠修复 */
+.topbar{flex-wrap:wrap;row-gap:6px}
+.crumb{flex:1;min-width:0}
+/* P1-3：触控目标最小44px */
+.section-toggle, .ico-btn, .sb-toggle-float, .m-nav-btn{min-width:44px;min-height:44px}
+.tb-back{padding:8px 14px;min-height:36px}
+/* P2-1：安全区适配 */
+@media (max-width:767px){
+  .m-drawer-mask, .bottom-float-bar, .q-foot, .practice-bar{
+    padding-bottom:env(safe-area-inset-bottom);
+  }
+}
+/* P2-3：可滚动tabs视觉提示 */
+.history-tabs, .seg{
+  position:relative;
+}
+.history-tabs::after, .seg::after{
+  content:"";
+  position:absolute;right:0;top:0;bottom:0;width:24px;
+  background:linear-gradient(to right, transparent, var(--color-surface, #F4F3EF));
+  pointer-events:none;
+}
+
 </style>
 <script>
 /* 小小红书版A：把「小小红书 + 累计收录」并入今日语录黑底卡片 */

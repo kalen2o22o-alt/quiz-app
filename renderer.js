@@ -2895,42 +2895,46 @@
     applyRightCollapsed();
   }
 
-  // 作答草稿：做题中可记录思考，交卷后转为只读展示（位于右栏草稿区顶部）
+  // 作答草稿：做题中可记录思考，交卷后转为只读展示（电脑端右栏 + 手机端中栏）
   function renderDraft(q){
-    const wrap = document.getElementById('draft-wrap');
-    const view = document.getElementById('draft-view');
-    const ta = document.getElementById('draft-input');
-    const toggleBtn = document.getElementById('draft-toggle-btn');
-    if(!ta) return;
     const uid = q._uid;
-    if(practiceSubmitted){
-      // 交卷后：默认只读，点击编辑按钮后才可修改
-      if(wrap) wrap.style.display = '';
-      if(view) view.style.display = 'none';
-      if(document.activeElement !== ta) ta.value = getDraft(uid);
-      // 默认只读态
-      if(!ta.dataset.editing){
-        ta.disabled = true;
-        ta.style.opacity = '0.85';
-        if(toggleBtn){ toggleBtn.textContent = '✎'; toggleBtn.title = '编辑'; }
+    // 同时更新电脑端和手机端的草稿输入框
+    ['', '-mobile'].forEach(suffix => {
+      const wrap = document.getElementById('draft-wrap' + suffix);
+      const view = document.getElementById('draft-view' + suffix);
+      const ta = document.getElementById('draft-input' + suffix);
+      const toggleBtn = document.getElementById('draft-toggle-btn' + suffix);
+      if(!ta) return;
+      if(practiceSubmitted){
+        if(wrap) wrap.style.display = '';
+        if(view) view.style.display = 'none';
+        if(document.activeElement !== ta) ta.value = getDraft(uid);
+        if(!ta.dataset.editing){
+          ta.disabled = true;
+          ta.style.opacity = '0.85';
+          if(toggleBtn){ toggleBtn.textContent = '✎'; toggleBtn.title = '编辑'; }
+        }
+      } else {
+        if(wrap) wrap.style.display = '';
+        if(view) view.style.display = 'none';
+        ta.disabled = false;
+        ta.style.opacity = '1';
+        ta.dataset.editing = '';
+        if(toggleBtn){ toggleBtn.style.display = 'none'; }
+        if(document.activeElement !== ta) ta.value = getDraft(uid);
       }
-    } else {
-      // 未交卷：直接可编辑，即时保存
-      if(wrap) wrap.style.display = '';
-      if(view) view.style.display = 'none';
-      ta.disabled = false;
-      ta.style.opacity = '1';
-      ta.dataset.editing = '';
-      if(toggleBtn){ toggleBtn.style.display = 'none'; }
-      if(document.activeElement !== ta) ta.value = getDraft(uid);
-    }
-    // 输入即时落库 + 编辑/保存切换（仅绑定一次）
-    if(!ta.dataset.bound){
-      ta.dataset.bound = '1';
-      ta.addEventListener('input', () => {
-        const q2 = practiceQuestions[currentIndex];
-        if(q2) setDraft(q2._uid, ta.value);
-      });
+      if(!ta.dataset.bound){
+        ta.dataset.bound = '1';
+        ta.addEventListener('input', () => {
+          const q2 = practiceQuestions[currentIndex];
+          if(q2){
+            setDraft(q2._uid, ta.value);
+            // 同步到另一个输入框
+            const otherSuffix = suffix === '' ? '-mobile' : '';
+            const otherTa = document.getElementById('draft-input' + otherSuffix);
+            if(otherTa && document.activeElement !== otherTa) otherTa.value = ta.value;
+          }
+        });
       // 切换按钮：交卷后 编辑↔保存
       if(toggleBtn){
         toggleBtn.addEventListener('click', () => {
@@ -2960,6 +2964,7 @@
     if(toggleBtn){
       toggleBtn.style.display = practiceSubmitted ? '' : 'none';
     }
+    });
   }
 
   function renderOptions(q){
@@ -3641,16 +3646,42 @@
     const sidebar = document.querySelector('.sidebar');
     const main = document.querySelector('.main');
     if(!sidebar) return;
-    // 三道杠浮动按钮（在屏幕最左侧），双向切换展开/收起
+    // 三道杠浮动按钮（在屏幕最左侧），打开全局导航抽屉菜单（学习/训练/我的）
     if(!document.getElementById('sb-toggle-float')){
       const floatBtn = document.createElement('button');
       floatBtn.id = 'sb-toggle-float';
       floatBtn.className = 'sb-toggle-float';
-      floatBtn.title = '收起菜单';
-      floatBtn.setAttribute('aria-label', '收起左侧菜单');
+      floatBtn.title = '打开导航菜单';
+      floatBtn.setAttribute('aria-label', '打开导航菜单');
       floatBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
-      floatBtn.addEventListener('click', () => toggleSidebar());
+      floatBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleMobileDrawer();
+      });
       document.body.appendChild(floatBtn);
+    }
+    // 移动端抽屉菜单切换函数
+    function toggleMobileDrawer(){
+      const mDrawer = document.getElementById('mDrawer');
+      const mDrawerMask = document.getElementById('mDrawerMask');
+      if(!mDrawer) return;
+      const isOpen = mDrawer.classList.contains('open');
+      if(isOpen){
+        mDrawer.classList.remove('open');
+        if(mDrawerMask) mDrawerMask.classList.remove('show');
+      } else {
+        mDrawer.classList.add('open');
+        if(mDrawerMask) mDrawerMask.classList.add('show');
+      }
+    }
+    // 点击遮罩关闭抽屉
+    if(document.getElementById('mDrawerMask')){
+      document.getElementById('mDrawerMask').addEventListener('click', () => {
+        const mDrawer = document.getElementById('mDrawer');
+        const mDrawerMask = document.getElementById('mDrawerMask');
+        if(mDrawer) mDrawer.classList.remove('open');
+        if(mDrawerMask) mDrawerMask.classList.remove('show');
+      });
     }
 
     // 恢复上次状态
@@ -3667,16 +3698,11 @@
     sidebar.classList.toggle('collapsed', collapsed);
     if(main) main.classList.toggle('expanded', collapsed);
     document.body.classList.toggle('sidebar-collapsed', collapsed);
-    // 更新三道杠浮动按钮的title
+    // 三道杠浮动按钮title固定为打开导航菜单
     const floatBtn = document.getElementById('sb-toggle-float');
     if(floatBtn){
-      if(collapsed){
-        floatBtn.title = '展开菜单';
-        floatBtn.setAttribute('aria-label', '展开左侧菜单');
-      } else {
-        floatBtn.title = '收起菜单';
-        floatBtn.setAttribute('aria-label', '收起左侧菜单');
-      }
+      floatBtn.title = '打开导航菜单';
+      floatBtn.setAttribute('aria-label', '打开导航菜单');
     }
     try{ store.set(sidebarStateKey(), collapsed ? '1' : '0'); }catch(e){}
   }
@@ -4622,4 +4648,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(window.__QUIZ_TEST__){
     window.__quizInternals = { exportBackup, importBackup, mergeBackupPayload, collectBackupKeys, getQuestions, getHistoricalAnswersMap, clearOrphanStateOnce, seedFromServer, saveHistoryFile, loadHistoryFile, exportWrongSnapshot };
   }
+
+
+  // ===== 手机端：原来的紧贴屏幕按钮改为悬浮显示/隐藏 =====
+  function isMobileView(){
+    return window.innerWidth <= 767;
+  }
+  function closeMobilePanels(){
+    document.body.classList.remove('mobile-left-open', 'mobile-right-open');
+  }
+  // 事件委托：处理col-toggle按钮点击
+  document.addEventListener('click', (e) => {
+    if(!isMobileView()) return;
+    const toggleBtn = e.target.closest('.col-toggle');
+    if(!toggleBtn) return;
+    const side = toggleBtn.dataset.side;
+    if(!side) return;
+    e.stopPropagation();
+    e.preventDefault();
+    if(side === 'left'){
+      const isOpen = document.body.classList.contains('mobile-left-open');
+      closeMobilePanels();
+      if(!isOpen) document.body.classList.add('mobile-left-open');
+    } else if(side === 'right'){
+      const isOpen = document.body.classList.contains('mobile-right-open');
+      closeMobilePanels();
+      if(!isOpen){
+        document.body.classList.add('mobile-right-open');
+        // 展开正确答案与解析区块
+        if(typeof rightCollapsed !== 'undefined' && rightCollapsed.ans){
+          rightCollapsed.ans = false;
+          if(typeof applyRightCollapsed === 'function') applyRightCollapsed();
+        }
+      }
+    }
+  });
+  // 点击遮罩关闭
+  document.addEventListener('click', (e) => {
+    if(!isMobileView()) return;
+    if(e.target.classList.contains('mobile-panel-mask')){
+      closeMobilePanels();
+    }
+  });
+
 })();
