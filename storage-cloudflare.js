@@ -55,15 +55,85 @@
     });
   }
 
+  // 检查命名空间是否有数据（用于口令校验）
+  async function namespaceHasData(ns){
+    try{
+      var res = await fetch(baseUrl() + '?subj=accounting&ns=' + encodeURIComponent(ns), { method: 'GET' });
+      if(!res.ok) return null; // 网络错误，无法判断
+      var map = await res.json();
+      var hasData = false;
+      FILES.forEach(function(f){
+        var v = map[f];
+        if(v && typeof v === 'object' && Object.keys(v).length > 0) hasData = true;
+      });
+      return hasData;
+    }catch(e){ return null; }
+  }
+
+  // 确认弹窗
+  function confirmDialog(title, msg, okText, cancelText){
+    return new Promise(function(resolve){
+      var overlay = document.createElement('div');
+      overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,24,30,.5);display:flex;align-items:center;justify-content:center;z-index:99999;font-family:system-ui,sans-serif';
+      overlay.innerHTML =
+        '<div style="background:#fff;border-radius:14px;padding:24px 26px;width:340px;box-shadow:0 10px 40px rgba(0,0,0,.25)">' +
+          '<div style="font-size:16px;font-weight:600;color:#1f2329;margin-bottom:8px">' + title + '</div>' +
+          '<div style="font-size:13px;color:#7a7f87;margin-bottom:16px;line-height:1.6">' + msg + '</div>' +
+          '<div style="display:flex;gap:10px">' +
+            '<button id="cancel" style="flex:1;padding:10px;border:1px solid #d0d3d9;border-radius:8px;background:#fff;color:#555;font-size:14px;cursor:pointer">' + (cancelText || '取消') + '</button>' +
+            '<button id="ok" style="flex:1;padding:10px;border:0;border-radius:8px;background:#185FA5;color:#fff;font-size:14px;cursor:pointer">' + (okText || '确认') + '</button>' +
+          '</div>' +
+        '</div>';
+      document.body.appendChild(overlay);
+      overlay.querySelector('#ok').addEventListener('click', function(){ overlay.remove(); resolve(true); });
+      overlay.querySelector('#cancel').addEventListener('click', function(){ overlay.remove(); resolve(false); });
+    });
+  }
+
   async function unlock(){
     if(!cfg.requirePassphrase) return;
     // 同一浏览器记住口令（存哈希，非明文）：只输一次，刷新/重开自动解锁
     var saved = null;
     try { saved = localStorage.getItem('quiz_cf_ns'); } catch(e) {}
-    if(saved){ nsSeed = saved; return; }
-    var pw = await askPassphrase();
-    nsSeed = await sha256Hex('cpa-quiz::' + pw);
-    try { localStorage.setItem('quiz_cf_ns', nsSeed); } catch(e) {}
+    if(saved){
+      nsSeed = saved;
+      // 校验已保存的口令：如果命名空间为空且本地有数据，可能口令错误
+      var hasData = await namespaceHasData(saved);
+      if(hasData === false){
+        var localHasData = false;
+        try{
+          var keys = Object.keys(localStorage);
+          keys.forEach(function(k){
+            if(k.indexOf('answers_') === 0 || k.indexOf('sessions_') === 0){
+              var v = localStorage.getItem(k);
+              if(v && v !== '{}' && v !== '[]') localHasData = true;
+            }
+          });
+        }catch(e){}
+        if(localHasData){
+          var retry = await confirmDialog('口令可能错误', '该口令对应的云端命名空间为空，但本地有学习记录。可能是口令输入错误，是否重新输入？', '重新输入', '继续使用');
+          if(retry){
+            try { localStorage.removeItem('quiz_cf_ns'); } catch(e) {}
+            nsSeed = '';
+            return unlock();
+          }
+        }
+      }
+      return;
+    }
+    // 首次输入口令：校验是否为已有命名空间
+    while(true){
+      var pw = await askPassphrase();
+      var ns = await sha256Hex('cpa-quiz::' + pw);
+      var hasData = await namespaceHasData(ns);
+      if(hasData === false){
+        var isNew = await confirmDialog('新建命名空间', '该口令对应的云端命名空间为空（首次使用或口令错误）。确认使用此口令新建？', '确认新建', '重新输入');
+        if(!isNew) continue;
+      }
+      nsSeed = ns;
+      try { localStorage.setItem('quiz_cf_ns', nsSeed); } catch(e) {}
+      return;
+    }
   }
 
   function baseUrl(){ return (apiBase || '') + '/api'; }
@@ -82,7 +152,8 @@
     var res = await fetch(baseUrl(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subj: subj, file: file, value: obj || {}, ns: nsSeed })
+      body: JSON.stringify({ subj: subj, file: file, value: obj || {}, ns: nsSeed }),
+      keepalive: true
     });
     if(!res.ok){ throw new Error('云端写入失败 HTTP ' + res.status); }
     return await res.json();

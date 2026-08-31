@@ -1,3 +1,19 @@
 /*
   Cache-Control: no-store
   X-Content-Type-Options: nosniff
+
+/bank_*.js
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
+  X-Content-Type-Options: nosniff
+
+/config.js
+  Cache-Control: no-store
+  X-Content-Type-Options: nosniff
+
+/meta.js
+  Cache-Control: no-store
+  X-Content-Type-Options: nosniff

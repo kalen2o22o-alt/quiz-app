@@ -7,46 +7,46 @@
 <style>
 /* ============================ 1. 设计令牌 ============================ */
 :root{
-  /* Primary — 锤子红体系（v2 豆包版） */
-  --color-primary:#C03B2B;
-  --color-primary-strong:#9E2F20;   /* 链接/当前项/小号文字（AA 通过） */
-  --color-primary-accent:#B43222;   /* 状态描边与大字 */
-  --color-primary-deep:#8A2818;     /* 承载白字的深红（AA 5.4:1） */
-  --color-secondary:#C03B2B;
-  --color-secondary-strong:#8A2818; /* 主行动按钮 深红底白字 */
-  --color-secondary-deep:#6E1A10;
-
-  /* Neutral */
-  --color-bg:#F4F3EF;
+  --color-primary-strong:#9E2F20;
+  --color-secondary-strong:#8A2818;
   --color-surface:#FFFFFF;
   --color-surface-muted:#F0EEE8;
   --color-border:#E4E2DB;
   --color-text-primary:#2B2B28;
   --color-text-secondary:#6E6C66;
-  --color-text-tertiary:#9A978E;   /* v2 --ink-3 */
-  --color-surface-2:#FBFAF7;       /* v2 --surface-2 */
-
-  /* Semantic — 三色功能化 */
-  --color-success:#2F8F6B;
-  --color-success-text:#1F6B4C;
-  --color-success-soft:#E2F0E8;
-  --color-danger:#C03B2B;
-  --color-danger-text:#8A2818;
-  --color-danger-soft:#F7E6E2;
-
-  /* Gradient */
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
+  --color-text-tertiary:#6E6C66;
+  --color-success-text:#15803D;
+  --color-success-soft:#DCFCE7;
+  --color-danger:#EF4444;
+  --color-danger-text:#B91C1C;
+  --color-danger-soft:#FEE2E2;
   --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%);
   --gradient-brand-soft:linear-gradient(135deg,#F7E6E2 0%,#FBEFE9 100%);
-
-  /* Radius / Spacing / Elevation */
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:10px; --radius-pill:999px;
-  --space-sm:8px; --space-md:16px; --space-lg:24px; --space-xl:32px;
-  --shadow-raised:0 1px 2px rgba(43,40,38,.05),0 2px 10px rgba(43,40,38,.055);
-  --shadow-floating:0 6px 24px rgba(43,40,38,.10),0 2px 6px rgba(43,40,38,.06);
-
-  --font-body:"PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei","Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"SF Mono","Inter","PingFang SC","Microsoft YaHei",monospace;
+  --radius-card-sm:12px;
+  --radius-btn:8px;
+  --radius-pill:999px;
+  --space-sm:8px;
+  --space-md:16px;
+  --space-lg:24px;
+  --space-xl:32px;
+  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
+  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
+  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
+  --color-primary:#C03B2B;
+  --color-secondary:#C03B2B;
+  --color-secondary-deep:#6E1A10;
+  --color-bg:#F4F3EF;
+  --color-success:#22C55E;
+  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
+  --gradient-blue:linear-gradient(112deg,#8A2818 0%,#C03B2B 55%,#E2573D 100%);
+  --radius-card:16px;
+  --color-primary-deep:#8A2818;
+  --color-dot:#E4573D;
+  --t-fast:80ms;
+  --t-mid:150ms;
+  --t-panel:200ms;
+  --t-modal:180ms;
 }
 
 /* ============================ 2. 基础 ============================ */
@@ -275,28 +275,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none}
 
 
 /* ============================ 1. 设计令牌 ============================ */
-:root{
-  --color-primary:#C03B2B;
-  --color-primary-strong:#9E2F20;   /* 链接/当前项/小号文字（白底 5.47:1 · 青绿12%底 5.04:1 → AA 通过） */
-  --color-primary-accent:#B43222;   /* 仅用于状态描边与 ≥18.66px/700 大数字（3.74:1，非文字/大字豁免） */
-  --color-primary-deep:#8A2818;
-  --color-secondary:#C03B2B; --color-secondary-strong:#8A2818; --color-secondary-deep:#6E1A10;
-  --color-bg:#F4F3EF; --color-surface:#FFFFFF; --color-surface-muted:#F0EEE8;
-  --color-border:#E4E2DB; --color-text-primary:#2B2B28; --color-text-secondary:#6E6C66;
-  --color-success:#22C55E; --color-success-text:#15803D; --color-success-soft:#DCFCE7;
-  --color-danger:#EF4444; --color-danger-text:#B91C1C; --color-danger-soft:#FEE2E2;
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
-  --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%);
-  --gradient-brand-soft:linear-gradient(135deg,#F7E6E2 0%,#FBEFE9 100%);
-  --gradient-blue:linear-gradient(112deg,#8A2818 0%,#C03B2B 55%,#E2573D 100%);
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:8px; --radius-pill:999px;
-  --space-md:16px; --space-lg:24px; --space-xl:32px;
-  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
-  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
-  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
-  --color-text-tertiary:#6E6C66; /* 对比度修复：原#9A978E仅2.92:1，不达标 */
-}
+
 
 /* ============================ 2. 基础 ============================ */
 *,*::before,*::after{box-sizing:border-box}
@@ -492,24 +471,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 
 
 /* ============================ 1. 设计令牌 ============================ */
-:root{
-  --color-primary:#C03B2B; --color-primary-strong:#9E2F20; --color-primary-deep:#8A2818;
-  --color-secondary:#C03B2B; --color-secondary-strong:#8A2818; --color-secondary-deep:#6E1A10;
-  --color-bg:#F4F3EF; --color-surface:#FFFFFF; --color-surface-muted:#F0EEE8;
-  --color-border:#E4E2DB; --color-text-primary:#2B2B28; --color-text-secondary:#6E6C66;
-  --color-success:#22C55E; --color-success-text:#15803D; --color-success-soft:#DCFCE7;
-  --color-danger:#EF4444; --color-danger-text:#B91C1C; --color-danger-soft:#FEE2E2;
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
-  --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%);
-  --gradient-brand-soft:linear-gradient(135deg,#F7E6E2 0%,#FBEFE9 100%);
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:8px; --radius-pill:999px;
-  --space-md:16px; --space-lg:24px;
-  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
-  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
-  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
-  --color-text-tertiary:#6E6C66; /* 对比度修复：原#9A978E仅2.92:1，不达标 */
-}
+
 
 /* ============================ 2. 基础 ============================ */
 *,*::before,*::after{box-sizing:border-box}
@@ -915,23 +877,7 @@ body.resizing-split,body.resizing-split *{cursor:col-resize!important;user-selec
 
 
 /* ============================ 1. 设计令牌 ============================ */
-:root{
-  --color-primary:#C03B2B; --color-primary-strong:#9E2F20; --color-primary-deep:#8A2818;
-  --color-secondary:#C03B2B; --color-secondary-strong:#8A2818; --color-secondary-deep:#6E1A10;
-  --color-bg:#F4F3EF; --color-surface:#FFFFFF; --color-surface-muted:#F0EEE8;
-  --color-border:#E4E2DB; --color-text-primary:#2B2B28; --color-text-secondary:#6E6C66;
-  --color-success:#22C55E; --color-success-text:#15803D; --color-success-soft:#DCFCE7;
-  --color-danger:#EF4444; --color-danger-text:#B91C1C; --color-danger-soft:#FEE2E2;
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
-  --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%);
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:8px; --radius-pill:999px;
-  --space-md:16px; --space-lg:24px; --space-xl:32px;
-  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
-  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
-  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
-  --color-text-tertiary:#6E6C66; /* 对比度修复：原#9A978E仅2.92:1，不达标 */
-}
+
 
 /* ============================ 2. 基础 ============================ */
 *,*::before,*::after{box-sizing:border-box}
@@ -1081,10 +1027,11 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 
 .wq-stem{font-size:16px;line-height:1.75;margin-top:14px;letter-spacing:.1px}
 .wq-stem em{font-style:normal;background:linear-gradient(transparent 62%,rgba(192,59,43,.30) 0);padding:0 1px}
-table.q-tbl{border-collapse:collapse;margin:6px 0;font-size:13px;line-height:1.5;max-width:100%}
-table.q-tbl th,table.q-tbl td{border:1px solid #d8dbe3;padding:4px 9px;text-align:left;vertical-align:top}
+.q-tbl-wrap{overflow-x:auto;margin:6px 0;-webkit-overflow-scrolling:touch}
+table.q-tbl{border-collapse:collapse;font-size:13px;line-height:1.5;min-width:100%}
+table.q-tbl th,table.q-tbl td{border:1px solid #d8dbe3;padding:4px 9px;text-align:left;vertical-align:top;white-space:nowrap}
 table.q-tbl th{background:#f5f7fa;font-weight:600;color:#374151}
-span.q-tbl{font-family:Consolas,"Courier New",monospace;white-space:pre}
+span.q-tbl{font-family:Consolas,"Courier New",monospace;white-space:pre;display:block;overflow-x:auto;padding:4px 0}
 .wq-sub{font-size:13px;color:var(--color-text-secondary);margin-top:8px}
 
 .wq-opts{margin-top:14px;display:flex;flex-direction:column;gap:6px}
@@ -1164,23 +1111,7 @@ span.q-tbl{font-family:Consolas,"Courier New",monospace;white-space:pre}
 
 
 /* ============================ 1. 设计令牌 ============================ */
-:root{
-  --color-primary:#C03B2B; --color-primary-strong:#9E2F20; --color-primary-deep:#8A2818;
-  --color-secondary:#C03B2B; --color-secondary-strong:#8A2818; --color-secondary-deep:#6E1A10;
-  --color-bg:#F4F3EF; --color-surface:#FFFFFF; --color-surface-muted:#F0EEE8;
-  --color-border:#E4E2DB; --color-text-primary:#2B2B28; --color-text-secondary:#6E6C66;
-  --color-success:#22C55E; --color-success-text:#15803D; --color-success-soft:#DCFCE7;
-  --color-danger:#EF4444; --color-danger-text:#B91C1C; --color-danger-soft:#FEE2E2;
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
-  --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%);
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:8px; --radius-pill:999px;
-  --space-md:16px; --space-lg:24px; --space-xl:32px;
-  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
-  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
-  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
-  --color-text-tertiary:#6E6C66; /* 对比度修复：原#9A978E仅2.92:1，不达标 */
-}
+
 
 /* ============================ 2. 基础 ============================ */
 *,*::before,*::after{box-sizing:border-box}
@@ -1409,47 +1340,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 
 
 /* ============================ 1. 设计令牌 ============================ */
-:root{
-  /* Primary — 青蓝体系 */
-  --color-primary:#C03B2B;
-  --color-primary-strong:#9E2F20;   /* 链接/当前项/小号文字（白底 5.47:1 · 青绿12%底 5.04:1 → AA 通过） */
-  --color-primary-accent:#B43222;   /* 仅用于状态描边与 ≥18.66px/700 大数字（3.74:1，非文字/大字豁免） */
-  --color-primary-deep:#8A2818;     /* 承载白字的深青（AA 5.4:1） */
-  --color-secondary:#E2573D;
-  --color-secondary-strong:#C03B2B; /* 主行动按钮 蓝底白字（AA 4.9:1） */
-  --color-secondary-deep:#8A2818;
 
-  /* Neutral */
-  --color-bg:#F6F9FC;
-  --color-surface:#FFFFFF;
-  --color-surface-muted:#F1F5F9;
-  --color-border:#E6E8EB;
-  --color-text-primary:#0F172A;
-  --color-text-secondary:#475569;   /* 已达 AA，替代 #64748B */
-
-  /* Semantic — 三色功能化 */
-  --color-success:#22C55E;          /* 仅作进度填充 / 图标 / 描边 */
-  --color-success-text:#15803D;     /* 绿色文字（AA 4.9:1） */
-  --color-success-soft:#DCFCE7;
-  --color-danger:#EF4444;
-  --color-danger-text:#B91C1C;      /* 红色文字（AA 5.9:1） */
-  --color-danger-soft:#FEE2E2;
-
-  /* Gradient */
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);        /* 插图填充（不承载文字） */
-  --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%); /* 承载白字/白图标 */
-  --gradient-brand-soft:linear-gradient(135deg,#F7E6E2 0%,#FBEFE9 100%);  /* 插图浅底 */
-
-  /* Radius / Spacing / Elevation */
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:8px; --radius-pill:999px;
-  --space-sm:8px; --space-md:16px; --space-lg:24px; --space-xl:32px;
-  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
-  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
-
-  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
-  --color-text-tertiary:#6E6C66; /* 对比度修复：原#9A978E仅2.92:1，不达标 */
-}
 
 /* ============================ 2. 基础 ============================ */
 *,*::before,*::after{box-sizing:border-box}
@@ -1675,24 +1566,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none}
 
 
 /* ============================ 1. 设计令牌 ============================ */
-:root{
-  --color-primary:#C03B2B; --color-primary-strong:#9E2F20; --color-primary-deep:#8A2818;
-  --color-secondary:#C03B2B; --color-secondary-strong:#8A2818; --color-secondary-deep:#6E1A10;
-  --color-bg:#F4F3EF; --color-surface:#FFFFFF; --color-surface-muted:#F0EEE8;
-  --color-border:#E4E2DB; --color-text-primary:#2B2B28; --color-text-secondary:#6E6C66;
-  --color-success:#22C55E; --color-success-text:#15803D; --color-success-soft:#DCFCE7;
-  --color-danger:#EF4444; --color-danger-text:#B91C1C; --color-danger-soft:#FEE2E2;
-  --gradient-brand:linear-gradient(135deg,#C03B2B 0%,#E2573D 100%);
-  --gradient-brand-deep:linear-gradient(115deg,#8A2818 0%,#9E2F20 40%,#C03B2B 100%);
-  --gradient-brand-soft:linear-gradient(135deg,#F7E6E2 0%,#FBEFE9 100%);
-  --radius-card:16px; --radius-card-sm:12px; --radius-btn:8px; --radius-pill:999px;
-  --space-md:16px; --space-lg:24px;
-  --shadow-raised:0 1px 3px rgba(43,40,38,.06);
-  --shadow-floating:0 4px 16px rgba(43,40,38,.08);
-  --font-body:"Inter","PingFang SC","HarmonyOS Sans SC","HarmonyOS Sans","Microsoft YaHei",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --num:"Inter",-apple-system,"PingFang SC",sans-serif;
-  --color-text-tertiary:#6E6C66; /* 对比度修复：原#9A978E仅2.92:1，不达标 */
-}
+
 
 /* ============================ 2. 基础 ============================ */
 *,*::before,*::after{box-sizing:border-box}
@@ -2314,7 +2188,7 @@ a:hover{color:var(--color-primary-deep)}
 .lc-theme-taxp .lc-sub.active{border-color:#2F8F6B;background:#EDF6F1}
 /* ============================ 101. 锤子系统落地（拟物质感 / 红点克制 / 按压反馈 / 九宫格） ============================ */
 /* 设计令牌：锤子红 + 过渡时长 */
-:root{--color-dot:#E4573D;--t-fast:80ms;--t-mid:150ms;--t-panel:200ms;--t-modal:180ms}
+
 /* 红点克制：侧边栏错题角标 → 锤子红底白字 */
 .sb-badge{background:var(--color-dot,#E4573D);color:#fff}
 /* 答题卡：标记题右上角 4px 锤子红点（不扩格子） */
@@ -2650,6 +2524,8 @@ body.left-collapsed .left-toggle-float{display:none !important}
 .m-nav-btn,.m-drawer,.m-drawer-mask{display:none}
 
 @media (max-width:767px){
+  /* P1-5：移动端不使用自定义书法字体（5.25MB），改用系统楷体，减少首屏带宽 */
+  #motto-txt, .rb-cover-txt{font-family:'LXGW WenKai','KaiTi','STKaiti',serif !important}
   /* 基础容器收窄 */
   .page{padding:16px 14px 48px}
   .hero{padding:18px 16px;margin-bottom:16px}
@@ -2673,6 +2549,9 @@ body.left-collapsed .left-toggle-float{display:none !important}
 
   /* 顶部栏为汉堡按钮避让 */
   .tb-inner{padding:0 14px 0 56px}
+  /* P1-6：窄屏表格缩小字号，配合横向滚动 */
+  .q-tbl-wrap table.q-tbl{font-size:11px}
+  .q-tbl-wrap table.q-tbl th,.q-tbl-wrap table.q-tbl td{padding:3px 6px}
   /* 顶部标题/面包屑窄屏省略号截断（避免长标题竖排挤压） */
   .tb-title{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tb-title b,.tb-title span{white-space:nowrap}
@@ -3625,14 +3504,14 @@ body.left-collapsed .left-toggle-float{display:none !important}
   });
 </script>
 <!-- 在线模式（Cloudflare Pages Functions + KV）：未配置 config.js 时自动惰性，不影响本地/server 模式 -->
-<script src="config.js"></script>
-<script src="storage-cloudflare.js"></script>
-<!-- 题库拆分加载：章节训练 / 冲刺模考 / 配置 各自独立文件；history.js 可选（保存记录后生成、打开自动恢复）；data.js 为兼容回退 -->
-<script src="meta.js"></script>
-<script src="bank_chapters.js"></script>
-<script src="bank_papers.js"></script>
-<script src="bank_intensive.js"></script>
-<script src="renderer.js"></script>
+<script src="config.js" defer></script>
+<script src="storage-cloudflare.js" defer></script>
+<!-- 题库拆分加载：章节训练 / 冲刺模考 / 强化训练 各自独立文件，defer 不阻塞首屏渲染 -->
+<script src="meta.js" defer></script>
+<script src="bank_chapters.js" defer></script>
+<script src="bank_papers.js" defer></script>
+<script src="bank_intensive.js" defer></script>
+<script src="renderer.js" defer></script>
 <!-- ===== 移动端导航逻辑（≤767px 汉堡 + 抽屉） ===== -->
 <script>
 (function(){

@@ -149,8 +149,37 @@
     if(!files.length) return;
     if(__SUPABASE_MODE__){
       const subj = getSubject();
-      files.forEach(f => { try{ (window.SupaStore || window.CloudStore).saveFile(subj, f, __fileCache__[f] || {}); }catch(e){ console.warn('[quiz] 云端写入失败(' + f + '):', e); } });
-      __dirty__ = {};
+      const failed = [];
+      const promises = files.map(f => {
+        return (window.SupaStore || window.CloudStore).saveFile(subj, f, __fileCache__[f] || {})
+          .catch(() => { failed.push(f); });
+      });
+      Promise.all(promises).then(() => {
+        // 所有请求完成后，统一处理dirty：成功的清除，失败的保留
+        files.forEach(f => {
+          if(failed.includes(f)){
+            __dirty__[f] = true; // 失败的保留，下次重试
+          }else{
+            delete __dirty__[f]; // 成功的清除
+          }
+        });
+        if(failed.length){
+          console.warn('[quiz] 云端写入失败，保留待重试:', failed);
+          // 显示红色提示条
+          try{
+            let tip = document.getElementById('__save_fail_tip__');
+            if(!tip){
+              tip = document.createElement('div');
+              tip.id = '__save_fail_tip__';
+              tip.style.cssText = 'position:fixed;right:16px;bottom:16px;z-index:99999;background:#C03B2B;color:#fff;padding:10px 16px;border-radius:6px;font-size:13px;cursor:pointer;box-shadow:0 2px 8px rgba(0,0,0,0.2);';
+              tip.title = '点击重试';
+              document.body.appendChild(tip);
+            }
+            tip.textContent = '⚠ 数据未保存（' + failed.length + '个文件），点击重试';
+            tip.onclick = () => { tip.remove(); __flushAll__(false); };
+          }catch(e){}
+        }
+      });
       return;
     }
     const failed = [];
@@ -283,7 +312,7 @@
             const tag = ri === 0 ? 'th' : 'td';
             return '<tr>' + r.map(c => '<' + tag + '>' + c + '</' + tag + '>').join('') + '</tr>';
           }).join('');
-          out.push('<table class="q-tbl"><tbody>' + html + '</tbody></table>');
+          out.push('<div class="q-tbl-wrap"><table class="q-tbl"><tbody>' + html + '</tbody></table></div>');
         } else {
           out.push('<span class="q-tbl">' + block[0] + '</span>');
         }
@@ -501,6 +530,16 @@
     document.body.classList.add('resizing-split');
   }
   // 套卷取题：按 paperId 从对应题库取整套卷（冲刺模考用APP.papers，强化训练用BANK_INTENSIVE），赋予稳定 _uid 以便跨页作答同步
+  // 简单 FNV-1a 哈希，用于生成稳定的题目ID（不依赖数组下标）
+  function __qnHash__(s){
+    s = String(s || '');
+    let h = 0x811c9dc5;
+    for(let i = 0; i < s.length; i++){
+      h ^= s.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return ('0000000' + (h >>> 0).toString(16)).slice(-8);
+  }
   function getPaperQuestions(paperId){
     let paper = null;
     if(Array.isArray(APP.papers)) paper = APP.papers.find(p => p.id === paperId);
@@ -512,7 +551,8 @@
     }
     if(!paper) return [];
     const qs = (paper.questions || []).map((q, qi) => {
-      q._uid = 'paper:' + paperId + '::' + qi;
+      const qhash = __qnHash__((q.stem || '') + '|' + JSON.stringify(q.options || {}));
+      q._uid = 'paper:' + paperId + '::' + qhash;
       q.paper = paperId;
       q.chapter = paper.name;
       return q;

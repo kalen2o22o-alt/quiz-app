@@ -3,22 +3,43 @@
 // 依赖：Pages 项目绑定 KV namespace，变量名固定为 QUIZ_KV
 // 接口：
 //   GET  /api?subj=<科目id>&ns=<口令命名空间>  → { history, wrong, favorites, error_corrected, notes, answers }
-//   PUT  /api  body:{ subj, file, value, ns }  → 写入 KV
-//   OPTIONS → CORS 预检（默认放行所有来源，同域部署时本就不需要）
+//   PUT  /api  body:{ subj, file, value, ns }  → 写入 KV（服务端自动合并，防双端覆盖）
+//   OPTIONS → CORS 预检
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
 
+  // P1-7：CORS 限定为 Pages 域名（动态读取 Origin，同域或允许的域名才放行）
+  const origin = request.headers.get('Origin') || '';
+  const allowedOrigins = [
+    'https://quiz-app-1iy.pages.dev',
+    'http://localhost:8777',
+    'http://127.0.0.1:8777',
+  ];
+  const corsOrigin = allowedOrigins.includes(origin) ? origin : (origin.startsWith('http://localhost') || origin.startsWith('http://127.0.0.1') ? origin : '');
   const CORS = {
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': corsOrigin || 'https://quiz-app-1iy.pages.dev',
     'Access-Control-Allow-Methods': 'GET, PUT, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type',
     'Access-Control-Max-Age': '86400',
     'Cache-Control': 'no-store',
+    'Vary': 'Origin',
   };
   const JSON_HEADERS = { ...CORS, 'Content-Type': 'application/json; charset=utf-8' };
-  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers'];
+  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'drafts'];
   const KVPrefix = 'quiz:';
+
+  // P1-7：简单限流（每个IP每分钟最多60次请求）
+  const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
+  const rateKey = 'rate:' + clientIP + ':' + Math.floor(Date.now() / 60000);
+  try {
+    const count = await env.QUIZ_KV.get(rateKey, 'text');
+    const n = parseInt(count || '0', 10);
+    if (n >= 60) {
+      return new Response(JSON.stringify({ error: 'rate limit exceeded' }), { status: 429, headers: JSON_HEADERS });
+    }
+    await env.QUIZ_KV.put(rateKey, String(n + 1), { expirationTtl: 120 });
+  } catch (e) { /* 限流失败不阻断正常请求 */ }
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });
@@ -52,9 +73,41 @@ export async function onRequest(context) {
       return new Response(JSON.stringify({ error: 'bad request' }), { status: 400, headers: JSON_HEADERS });
     }
     const key = KVPrefix + ns + ':' + subj + ':' + file;
-    await env.QUIZ_KV.put(key, JSON.stringify(body.value || {}));
-    return new Response(JSON.stringify({ ok: true, key: key }), { status: 200, headers: JSON_HEADERS });
+
+    // P1-2：服务端记录级合并，防双端同时写入互相覆盖
+    let current = null;
+    try { current = await env.QUIZ_KV.get(key, 'json'); } catch (e) { current = null; }
+    const incoming = body.value || {};
+    const merged = mergeValues(current, incoming);
+
+    await env.QUIZ_KV.put(key, JSON.stringify(merged));
+    return new Response(JSON.stringify({ ok: true, key: key, merged: true }), { status: 200, headers: JSON_HEADERS });
   }
 
   return new Response(JSON.stringify({ error: 'method not allowed' }), { status: 405, headers: JSON_HEADERS });
+}
+
+// P1-2：记录级深度合并（对象取并集，数组按id去重，标量取新值）
+function mergeValues(a, b) {
+  if (b === null || b === undefined) return a || {};
+  if (a === null || a === undefined) return b;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    // 数组：按 id 字段去重合并
+    const map = {};
+    a.forEach(item => { if (item && item.id) map[item.id] = item; });
+    b.forEach(item => { if (item && item.id) map[item.id] = item; });
+    return Object.values(map);
+  }
+  if (typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+    const out = { ...a };
+    for (const k of Object.keys(b)) {
+      if (out[k] !== undefined && typeof out[k] === 'object' && typeof b[k] === 'object' && !Array.isArray(out[k]) && !Array.isArray(b[k])) {
+        out[k] = mergeValues(out[k], b[k]);
+      } else {
+        out[k] = b[k];
+      }
+    }
+    return out;
+  }
+  return b; // 标量：新值覆盖旧值
 }
