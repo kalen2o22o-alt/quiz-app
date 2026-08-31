@@ -13,6 +13,9 @@
 //   PUT  /api  body:{ subj, file, value, ns }  → 写入 KV（服务端自动合并，防双端覆盖）
 //   OPTIONS → CORS 预检
 
+// 模块级内存限流计数（不写 KV，避免消耗 KV 写配额）
+const rateMap = new Map();
+
 export async function onRequest(context) {
   const { request, env } = context;
   const url = new URL(request.url);
@@ -49,17 +52,22 @@ export async function onRequest(context) {
     }), { status: 200, headers: JSON_HEADERS });
   }
 
-  // P1-7：简单限流（每个IP每分钟最多60次请求）
+  // P1-7：简单限流（每个IP每分钟最多120次请求）
+  // 【优化】改用纯内存计数，不再写 KV —— 避免每次请求都消耗 KV 写配额（免费版 1000次/天）
   const clientIP = request.headers.get('CF-Connecting-IP') || 'unknown';
-  const rateKey = 'rate:' + clientIP + ':' + Math.floor(Date.now() / 60000);
-  try {
-    const count = await env.QUIZ_KV.get(rateKey, 'text');
-    const n = parseInt(count || '0', 10);
-    if (n >= 60) {
-      return new Response(JSON.stringify({ error: 'rate limit exceeded' }), { status: 429, headers: JSON_HEADERS });
+  const nowMin = Math.floor(Date.now() / 60000);
+  const rateKey = 'rate:' + clientIP + ':' + nowMin;
+  const rCount = rateMap.get(rateKey) || 0;
+  if (rCount >= 120) {
+    return new Response(JSON.stringify({ error: 'rate limit exceeded' }), { status: 429, headers: JSON_HEADERS });
+  }
+  rateMap.set(rateKey, rCount + 1);
+  // 清理 2 分钟前的旧窗口，防止内存无限增长
+  if (rateMap.size > 2000) {
+    for (const k of rateMap.keys()) {
+      if (!k.includes(':' + nowMin) && !k.includes(':' + (nowMin - 1))) rateMap.delete(k);
     }
-    await env.QUIZ_KV.put(rateKey, String(n + 1), { expirationTtl: 120 });
-  } catch (e) { /* 限流失败不阻断正常请求 */ }
+  }
 
   if (request.method === 'OPTIONS') {
     return new Response(null, { status: 204, headers: CORS });

@@ -222,7 +222,7 @@
     if(!__SERVER_MODE__) return; // 文件模式不写服务器
     __dirty__[file] = true;
     if(__flushTimer__) return;
-    __flushTimer__ = setTimeout(() => { __flushTimer__ = null; __flushAll__(false); }, 400);
+    __flushTimer__ = setTimeout(() => { __flushTimer__ = null; __flushAll__(false); }, 2000);
   }
   // 关页/切后台时强制 flush（keepalive 保证 unload 期间也能发出），避免 400ms 防抖期内丢失
   if(__SERVER_MODE__){
@@ -3896,8 +3896,10 @@
       try{
         const subj = getSubject();
         const map = await (window.SupaStore || window.CloudStore).loadAll(subj);
-        ['history','wrong','favorites','error_corrected','notes','answers'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
+        ['history','wrong','favorites','error_corrected','notes','answers','drafts'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
         // 首次上云：把本机旧 localStorage 业务记录并入云端命名空间，随后写入（避免丢历史）
+        // 【优化】仅当本地存在云端没有的数据时才 flush，避免每次开页面都白送写入（KV 免费写配额 1000次/天）
+        let needFlush = false;
         try{
           for(let i = 0; i < window.localStorage.length; i++){
             const k = window.localStorage.key(i);
@@ -3905,10 +3907,13 @@
             if(f && !Object.prototype.hasOwnProperty.call(__fileCache__[f], k)){
               const v = window.localStorage.getItem(k);
               if(v != null){ try{ __fileCache__[f][k] = JSON.parse(v); }catch(e){ __fileCache__[f][k] = v; } }
+              needFlush = true;
             }
           }
-          __scheduleFlush__('history'); __scheduleFlush__('wrong'); __scheduleFlush__('favorites'); __scheduleFlush__('error_corrected'); __scheduleFlush__('notes'); __scheduleFlush__('answers');
         }catch(e){}
+        if(needFlush){
+          ['history','wrong','favorites','error_corrected','notes','answers','drafts'].forEach(f => { __scheduleFlush__(f); });
+        }
         showCloudStatus('ok');
         return; // 题库来自 bank_*.js（IIFE 初始化），无需 /api
       }catch(e){
@@ -3934,7 +3939,7 @@
         }
       }catch(e){}
       // 1) 用户数据文件（按当前科目目录）
-      const files = ['history','wrong','favorites','error_corrected','notes','answers'];
+      const files = ['history','wrong','favorites','error_corrected','notes','answers','drafts'];
       await Promise.all(files.map(async (f) => {
         try{
           const r = await fetch('/api/data/' + subj + '/' + f + '.json', { cache:'no-store' });
