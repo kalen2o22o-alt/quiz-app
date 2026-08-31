@@ -2603,9 +2603,10 @@ body.left-collapsed .left-toggle-float{display:none !important}
   }
   body.mobile-left-open .mobile-panel-mask,
   body.mobile-right-open .mobile-panel-mask{display:block}
-  /* 手机端：分隔条只显示按钮，不显示拖拽条 */
-  .v-splitter{display:block !important;width:28px !important;background:transparent !important;border:none !important;cursor:default !important}
+  /* 手机端：分隔条本体脱离grid流并隐藏（fixed+visibility:hidden不占位），只保留内部fixed折叠按钮 */
+  .v-splitter{position:fixed !important;visibility:hidden !important;width:0 !important;height:0 !important;overflow:visible !important;background:transparent !important;border:none !important;cursor:default !important;z-index:203;display:flex !important}
   .v-splitter:hover{background:transparent !important}
+  .v-splitter .col-toggle{visibility:visible !important}
   /* 手机端：中栏显示草稿，右栏隐藏草稿 */
   .mobile-draft{display:block !important;margin-top:12px}
   .desktop-draft{display:none !important}
