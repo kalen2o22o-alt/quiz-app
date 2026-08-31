@@ -3656,7 +3656,13 @@
       floatBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
       floatBtn.addEventListener('click', (e) => {
         e.stopPropagation();
-        toggleMobileDrawer();
+        if(window.innerWidth > 767){
+          // 电脑端：切换侧边栏展开/收起
+          toggleSidebar();
+        } else {
+          // 手机端：打开全局导航抽屉菜单
+          toggleMobileDrawer();
+        }
       });
       document.body.appendChild(floatBtn);
     }
@@ -3698,11 +3704,21 @@
     sidebar.classList.toggle('collapsed', collapsed);
     if(main) main.classList.toggle('expanded', collapsed);
     document.body.classList.toggle('sidebar-collapsed', collapsed);
-    // 三道杠浮动按钮title固定为打开导航菜单
+    // 三道杠浮动按钮title：电脑端根据侧边栏状态切换，手机端固定为打开导航菜单
     const floatBtn = document.getElementById('sb-toggle-float');
     if(floatBtn){
-      floatBtn.title = '打开导航菜单';
-      floatBtn.setAttribute('aria-label', '打开导航菜单');
+      if(window.innerWidth > 767){
+        if(collapsed){
+          floatBtn.title = '展开菜单';
+          floatBtn.setAttribute('aria-label', '展开左侧菜单');
+        } else {
+          floatBtn.title = '收起菜单';
+          floatBtn.setAttribute('aria-label', '收起左侧菜单');
+        }
+      } else {
+        floatBtn.title = '打开导航菜单';
+        floatBtn.setAttribute('aria-label', '打开导航菜单');
+      }
     }
     try{ store.set(sidebarStateKey(), collapsed ? '1' : '0'); }catch(e){}
   }
