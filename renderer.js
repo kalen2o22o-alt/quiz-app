@@ -134,6 +134,8 @@
     'current_session_': 'drafts',
     'drafts_': 'drafts',
     'practice_state_': 'drafts',
+    'motto_text': 'motto',
+    'motto_history': 'motto',
   };
   function __fileOfKey__(k){
     for(const p in __FILE_MAP__){ if(k.indexOf(p) === 0) return __FILE_MAP__[p]; }
@@ -141,7 +143,7 @@
   }
   // 旧版数据 key 用中文科目名做后缀（如 sessions_会计），新统一为科目 id（sessions_accounting）
   const SUBJ_NAME_TO_ID = { '会计':'accounting','审计':'auditing','财管':'finance','税法':'tax','经济法':'economics','战略':'strategy' };
-  const __fileCache__ = { history:{}, wrong:{}, favorites:{}, error_corrected:{}, notes:{}, answers:{}, drafts:{} };
+  const __fileCache__ = { history:{}, wrong:{}, favorites:{}, error_corrected:{}, notes:{}, answers:{}, drafts:{}, motto:{} };
   let __dirty__ = {};
   let __flushTimer__ = null;
   function __flushAll__(keepalive){
@@ -186,7 +188,8 @@
     const promises = files.map(f => {
       try{
         const body = JSON.stringify(__fileCache__[f] || {}, null, 2);
-        return fetch('/api/data/' + getSubject() + '/' + f + '.json', { method:'PUT', headers:{'Content-Type':'application/json'}, body: body, keepalive: !!keepalive })
+        const url = (f === 'motto') ? '/api/data/motto.json' : ('/api/data/' + getSubject() + '/' + f + '.json');
+        return fetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body: body, keepalive: !!keepalive })
           .then(r => { if(!r.ok) failed.push(f); })
           .catch(() => { failed.push(f); });
       }catch(e){ failed.push(f); return Promise.resolve(); }
@@ -222,7 +225,7 @@
     if(!__SERVER_MODE__) return; // 文件模式不写服务器
     __dirty__[file] = true;
     if(__flushTimer__) return;
-    __flushTimer__ = setTimeout(() => { __flushTimer__ = null; __flushAll__(false); }, 2000);
+    __flushTimer__ = setTimeout(() => { __flushTimer__ = null; __flushAll__(false); }, 400);
   }
   // 关页/切后台时强制 flush（keepalive 保证 unload 期间也能发出），避免 400ms 防抖期内丢失
   if(__SERVER_MODE__){
@@ -377,7 +380,7 @@
   // 响应式布局：窄屏自动折叠右栏，宽屏自动展开（用户手动折叠的不受影响）
   let __userManuallyToggledRight = false;
   function applyResponsiveLayout(){
-    const shouldCollapse = window.innerWidth <= 1279;
+    const shouldCollapse = window.innerWidth <= 1100;
     document.querySelectorAll('.cols').forEach(cols => {
       const isCollapsed = cols.classList.contains('right-collapsed');
       if(shouldCollapse && !isCollapsed && !__userManuallyToggledRight){
@@ -423,13 +426,27 @@
     const cols = document.querySelector('.cols');
     if(!cols) return;
     const isLeft = side === 'left';
+    const isMobile = window.innerWidth <= 767;
+    // 手机端：悬浮层模式，切换 body 类
+    if(isMobile){
+      const bodyCls = isLeft ? 'mobile-show-left' : 'mobile-show-right';
+      const otherCls = isLeft ? 'mobile-show-right' : 'mobile-show-left';
+      const willShow = !document.body.classList.contains(bodyCls);
+      document.body.classList.toggle(bodyCls, willShow);
+      document.body.classList.remove(otherCls); // 同时只显示一个
+      // 右侧悬浮层显示时，自动展开正确答案与解析（取消折叠）
+      if(!isLeft && willShow && typeof rightCollapsed !== 'undefined' && typeof applyRightCollapsed === 'function'){
+        rightCollapsed.ans = false;
+        applyRightCollapsed();
+      }
+      return;
+    }
+    // 电脑端：原折叠逻辑
     const cls = isLeft ? 'left-collapsed' : 'right-collapsed';
     const willHide = !cols.classList.contains(cls);
     cols.classList.toggle(cls, willHide);
     if(isLeft) document.body.classList.toggle('left-collapsed', willHide);
-    // 用户手动操作右栏后，resize时不再自动切换
     if(!isLeft) __userManuallyToggledRight = true;
-    // 左栏按钮：.col-toggle-mini；右栏按钮：.v-splitter .col-toggle
     const btn = isLeft
       ? cols.querySelector('.col-toggle-mini')
       : cols.querySelector('.v-splitter[data-side="right"] .col-toggle');
@@ -487,11 +504,15 @@
       const btn = e.target.closest('.col-toggle, .left-toggle-float');
       if(btn) toggleSidePanel(btn.dataset.side === 'left' ? 'left' : 'right');
     });
-    // 捕获阶段阻止按钮上的 mousedown 冒泡到分隔条（避免拖动误触）
+    // 遮罩层点击收起悬浮层
+    document.addEventListener('click', e => {
+      if(e.target.classList.contains('mobile-overlay')){
+        document.body.classList.remove('mobile-show-left', 'mobile-show-right');
+      }
+    });
     document.addEventListener('mousedown', e => {
       if(e.target.closest('.col-toggle')){ e.stopPropagation(); e.preventDefault(); }
     }, true);
-
   }
   function onSplitterDown(e){
     e.preventDefault();
@@ -839,9 +860,14 @@
     try{ store.set(draftKey(), JSON.stringify(m)); }catch(e){}
   }
 
-  function getTypeLabel(type){
+  function getTypeLabel(type, ptype){
+    if(type === 'subjective'){
+      if(ptype === 'calc') return '计算分析题';
+      if(ptype === 'comp') return '综合题';
+      return '计算分析题 / 综合题';
+    }
     return type === 'single' ? '单项选择题' : type === 'multi' ? '多项选择题' : type === 'judge' ? '判断题' :
-           type === 'analysis' ? '分析题' : type === 'comprehensive' ? '综合题' : type === 'subjective' ? '计算分析题 / 综合题' : type || '其他题型';
+           type === 'analysis' ? '分析题' : type === 'comprehensive' ? '综合题' : type || '其他题型';
   }
   function countType(qs, type){ return qs.filter(q => q.type === type).length; }
 
@@ -2572,10 +2598,18 @@
         // 章节训练答题卡：返回到章节列表
         backHref = '#chapter';
       }
+      // 中级会计实务强化训练：在模块名与章节名之间插入练习组名
+      const isMidIntensive = isIntensive && getSubject() === 'mid-practice';
+      const groupHtml = isMidIntensive
+        ? '<span class="crumb-group" style="margin-left:-12px">2026年中级实务-正保550题</span>' : '';
+      // 仅本页面：返回→中级·实务文字间距 10px（subj 负margin），中级→强化→2026→第一章 相邻文字间 10px（负margin抵消左右内边距），不动返回按钮大小
+      const subjMargin = isMidIntensive ? ' style="margin-left:-2px"' : '';
+      const restMargin = isMidIntensive ? ' style="margin-left:-12px"' : '';
       crumb.innerHTML = '<a href="' + backHref + '" class="tb-back">返回</a>' +
-        '<span class="crumb-subj">' + escapeHtml(subjectLabel()) + '</span>' +
-        '<span class="crumb-mode">' + modeLabel + '</span>' +
-        '<span class="crumb-paper">' + escapeHtml(locLabel) + '</span>';
+        '<span class="crumb-subj"' + subjMargin + '>' + escapeHtml(subjectLabel()) + '</span>' +
+        '<span class="crumb-mode"' + restMargin + '>' + modeLabel + '</span>' +
+        groupHtml +
+        '<span class="crumb-paper"' + restMargin + '>' + escapeHtml(locLabel) + '</span>';
       tbInner.appendChild(crumb);
     }
     const sp = document.getElementById('sheet-sp');
@@ -2636,11 +2670,11 @@
       });
     });
     const tb = document.getElementById('tb-title');
-    if(tb) tb.innerHTML = '<nav class="crumb" style="justify-content:center;display:flex;flex-wrap:wrap;gap:8px">' +
+    if(tb) tb.innerHTML = '<nav class="crumb" style="justify-content:flex-start;display:flex;flex-wrap:wrap;gap:2px">' +
       '<a href="#dashboard" class="tb-back">返回</a>' +
-      '<span style="color:#475569">/</span><span id="crumb-subj">' + escapeHtml(subjectLabel()) + '</span>' +
-      '<span style="color:#475569">/</span><span style="color:var(--color-text-primary);font-weight:600">' + moduleLabel + '</span>' +
-      '<span style="color:#475569">/</span><span style="color:var(--color-text-secondary)">选择套卷</span></nav>';
+      '<span id="crumb-subj">' + escapeHtml(subjectLabel()) + '</span>' +
+      '<span style="color:var(--color-text-primary);font-weight:600">' + moduleLabel + '</span>' +
+      '<span style="color:var(--color-text-secondary)">选择套卷</span></nav>';
     const sp = document.getElementById('sheet-sp'); if(sp) sp.textContent = '共 ' + papers.length + ' 套';
     const colRight = document.getElementById('col-right'); if(colRight) colRight.style.display = 'none';
     // 选卷页顶栏 back 也设成返回自身（虽然被 CSS 隐藏，href 留对以防 stale）
@@ -2667,7 +2701,7 @@
         'body.mode-select .v-splitter { display: none !important; }',
         'body.mode-select .cols { display: block !important; max-width: 900px; margin: 0 auto; padding: 24px 24px 48px; }',
         'body.mode-select .col-mid { max-width: none; }',
-        'body.mode-select .tb-inner { justify-content: center !important; }',
+        'body.mode-select .tb-inner { justify-content: space-between !important; }',
         'body.mode-select .paper-group { margin-bottom: 24px; }',
         'body.mode-select .paper-group-h { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 600; margin-bottom: 10px; color: var(--color-text-primary); cursor: pointer; user-select: none; }',
         'body.mode-select .paper-group-h .arrow { width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid #94a3b8; transition: transform .2s ease; }',
@@ -2688,6 +2722,7 @@
         pbox.className = 'tb-search';
         pbox.type = 'text';
         pbox.placeholder = '搜索套卷…';
+        pbox.style.marginRight = '76px';
         inner.appendChild(pbox);
       }
     }
@@ -2817,18 +2852,18 @@
     const errorN = Object.keys(practiceState.errorCorrected || {}).length;
     if(practiceSubmitted){
       el.innerHTML =
-        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>✓ 正确 ' + ok + '</span>' +
+        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>正确 ' + ok + '</span>' +
         '<span><i style="background:#B45309;border-color:#B45309"></i>已标记 ' + flag + '</span>' +
-        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>? 待校验 ' + pending + '</span>' +
-        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>✗ 错误 ' + no + '</span>' +
+        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>待校验 ' + pending + '</span>' +
+        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>错误 ' + no + '</span>' +
         '<span><i style="background:#F2B33D;border-color:#F2B33D"></i>已收藏 ' + starN + '</span>' +
         '<span><i style="background:rgba(220,38,38,.10);border-color:#DC2626"></i>待纠错 ' + errorN + '</span>';
     } else {
       el.innerHTML =
-        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>✓ 正确 0</span>' +
+        '<span><i style="background:#DCFCE7;border-color:#8FE3AC"></i>正确 0</span>' +
         '<span><i style="background:#B45309;border-color:#B45309"></i>已标记 ' + flag + '</span>' +
-        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>? 待校验 0</span>' +
-        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>✗ 错误 0</span>' +
+        '<span><i style="background:#F1F5F9;border-color:#CBD5E1"></i>待校验 0</span>' +
+        '<span><i style="background:#FEE2E2;border-color:#F6ADAD"></i>错误 0</span>' +
         '<span><i style="background:#F2B33D;border-color:#F2B33D"></i>已收藏 ' + starN + '</span>' +
         '<span><i style="background:rgba(220,38,38,.10);border-color:#DC2626"></i>待纠错 ' + errorN + '</span>';
     }
@@ -2839,7 +2874,7 @@
     const q = practiceQuestions[currentIndex];
     if(!q) return;
     setText('pr-qno', qNo(q, currentIndex));
-    setText('pr-type', getTypeLabel(q.type));
+    setText('pr-type', getTypeLabel(q.type, q.ptype));
     setText('pr-meta', (q.chapter || '') + ' · ' + (q.section || '').replace(/^第\d+关\s*/, ''));
     const stem = document.getElementById('pr-stem');
     if(stem) stem.innerHTML = fmtRich(q.stem);
@@ -2895,46 +2930,42 @@
     applyRightCollapsed();
   }
 
-  // 作答草稿：做题中可记录思考，交卷后转为只读展示（电脑端右栏 + 手机端中栏）
+  // 作答草稿：做题中可记录思考，交卷后转为只读展示（位于右栏草稿区顶部）
   function renderDraft(q){
+    const wrap = document.getElementById('draft-wrap');
+    const view = document.getElementById('draft-view');
+    const ta = document.getElementById('draft-input');
+    const toggleBtn = document.getElementById('draft-toggle-btn');
+    if(!ta) return;
     const uid = q._uid;
-    // 同时更新电脑端和手机端的草稿输入框
-    ['', '-mobile'].forEach(suffix => {
-      const wrap = document.getElementById('draft-wrap' + suffix);
-      const view = document.getElementById('draft-view' + suffix);
-      const ta = document.getElementById('draft-input' + suffix);
-      const toggleBtn = document.getElementById('draft-toggle-btn' + suffix);
-      if(!ta) return;
-      if(practiceSubmitted){
-        if(wrap) wrap.style.display = '';
-        if(view) view.style.display = 'none';
-        if(document.activeElement !== ta) ta.value = getDraft(uid);
-        if(!ta.dataset.editing){
-          ta.disabled = true;
-          ta.style.opacity = '0.85';
-          if(toggleBtn){ toggleBtn.textContent = '✎'; toggleBtn.title = '编辑'; }
-        }
-      } else {
-        if(wrap) wrap.style.display = '';
-        if(view) view.style.display = 'none';
-        ta.disabled = false;
-        ta.style.opacity = '1';
-        ta.dataset.editing = '';
-        if(toggleBtn){ toggleBtn.style.display = 'none'; }
-        if(document.activeElement !== ta) ta.value = getDraft(uid);
+    if(practiceSubmitted){
+      // 交卷后：默认只读，点击编辑按钮后才可修改
+      if(wrap) wrap.style.display = '';
+      if(view) view.style.display = 'none';
+      if(document.activeElement !== ta) ta.value = getDraft(uid);
+      // 默认只读态
+      if(!ta.dataset.editing){
+        ta.disabled = true;
+        ta.style.opacity = '0.85';
+        if(toggleBtn){ toggleBtn.textContent = '✎'; toggleBtn.title = '编辑'; }
       }
-      if(!ta.dataset.bound){
-        ta.dataset.bound = '1';
-        ta.addEventListener('input', () => {
-          const q2 = practiceQuestions[currentIndex];
-          if(q2){
-            setDraft(q2._uid, ta.value);
-            // 同步到另一个输入框
-            const otherSuffix = suffix === '' ? '-mobile' : '';
-            const otherTa = document.getElementById('draft-input' + otherSuffix);
-            if(otherTa && document.activeElement !== otherTa) otherTa.value = ta.value;
-          }
-        });
+    } else {
+      // 未交卷：直接可编辑，即时保存
+      if(wrap) wrap.style.display = '';
+      if(view) view.style.display = 'none';
+      ta.disabled = false;
+      ta.style.opacity = '1';
+      ta.dataset.editing = '';
+      if(toggleBtn){ toggleBtn.style.display = 'none'; }
+      if(document.activeElement !== ta) ta.value = getDraft(uid);
+    }
+    // 输入即时落库 + 编辑/保存切换（仅绑定一次）
+    if(!ta.dataset.bound){
+      ta.dataset.bound = '1';
+      ta.addEventListener('input', () => {
+        const q2 = practiceQuestions[currentIndex];
+        if(q2) setDraft(q2._uid, ta.value);
+      });
       // 切换按钮：交卷后 编辑↔保存
       if(toggleBtn){
         toggleBtn.addEventListener('click', () => {
@@ -2964,7 +2995,6 @@
     if(toggleBtn){
       toggleBtn.style.display = practiceSubmitted ? '' : 'none';
     }
-    });
   }
 
   function renderOptions(q){
@@ -3646,13 +3676,13 @@
     const sidebar = document.querySelector('.sidebar');
     const main = document.querySelector('.main');
     if(!sidebar) return;
-    // 三道杠浮动按钮（在屏幕最左侧），打开全局导航抽屉菜单（学习/训练/我的）
+    // 三道杠浮动按钮（在屏幕最左侧），双向切换展开/收起
     if(!document.getElementById('sb-toggle-float')){
       const floatBtn = document.createElement('button');
       floatBtn.id = 'sb-toggle-float';
       floatBtn.className = 'sb-toggle-float';
-      floatBtn.title = '打开导航菜单';
-      floatBtn.setAttribute('aria-label', '打开导航菜单');
+      floatBtn.title = '收起菜单';
+      floatBtn.setAttribute('aria-label', '收起左侧菜单');
       floatBtn.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>';
       floatBtn.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -3660,13 +3690,13 @@
           // 电脑端：切换侧边栏展开/收起
           toggleSidebar();
         } else {
-          // 手机端：打开全局导航抽屉菜单
+          // 手机端：打开全局导航抽屉菜单（学习/训练/我的）
           toggleMobileDrawer();
         }
       });
       document.body.appendChild(floatBtn);
     }
-    // 移动端抽屉菜单切换函数
+    // 移动端抽屉菜单切换函数（≤767px，由 sb-toggle-float 触发）
     function toggleMobileDrawer(){
       const mDrawer = document.getElementById('mDrawer');
       const mDrawerMask = document.getElementById('mDrawerMask');
@@ -3679,15 +3709,6 @@
         mDrawer.classList.add('open');
         if(mDrawerMask) mDrawerMask.classList.add('show');
       }
-    }
-    // 点击遮罩关闭抽屉
-    if(document.getElementById('mDrawerMask')){
-      document.getElementById('mDrawerMask').addEventListener('click', () => {
-        const mDrawer = document.getElementById('mDrawer');
-        const mDrawerMask = document.getElementById('mDrawerMask');
-        if(mDrawer) mDrawer.classList.remove('open');
-        if(mDrawerMask) mDrawerMask.classList.remove('show');
-      });
     }
 
     // 恢复上次状态
@@ -3704,20 +3725,15 @@
     sidebar.classList.toggle('collapsed', collapsed);
     if(main) main.classList.toggle('expanded', collapsed);
     document.body.classList.toggle('sidebar-collapsed', collapsed);
-    // 三道杠浮动按钮title：电脑端根据侧边栏状态切换，手机端固定为打开导航菜单
+    // 更新三道杠浮动按钮的title
     const floatBtn = document.getElementById('sb-toggle-float');
     if(floatBtn){
-      if(window.innerWidth > 767){
-        if(collapsed){
-          floatBtn.title = '展开菜单';
-          floatBtn.setAttribute('aria-label', '展开左侧菜单');
-        } else {
-          floatBtn.title = '收起菜单';
-          floatBtn.setAttribute('aria-label', '收起左侧菜单');
-        }
+      if(collapsed){
+        floatBtn.title = '展开菜单';
+        floatBtn.setAttribute('aria-label', '展开左侧菜单');
       } else {
-        floatBtn.title = '打开导航菜单';
-        floatBtn.setAttribute('aria-label', '打开导航菜单');
+        floatBtn.title = '收起菜单';
+        floatBtn.setAttribute('aria-label', '收起左侧菜单');
       }
     }
     try{ store.set(sidebarStateKey(), collapsed ? '1' : '0'); }catch(e){}
@@ -3896,10 +3912,8 @@
       try{
         const subj = getSubject();
         const map = await (window.SupaStore || window.CloudStore).loadAll(subj);
-        ['history','wrong','favorites','error_corrected','notes','answers','drafts'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
+        ['history','wrong','favorites','error_corrected','notes','answers','motto'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
         // 首次上云：把本机旧 localStorage 业务记录并入云端命名空间，随后写入（避免丢历史）
-        // 【优化】仅当本地存在云端没有的数据时才 flush，避免每次开页面都白送写入（KV 免费写配额 1000次/天）
-        let needFlush = false;
         try{
           for(let i = 0; i < window.localStorage.length; i++){
             const k = window.localStorage.key(i);
@@ -3907,13 +3921,10 @@
             if(f && !Object.prototype.hasOwnProperty.call(__fileCache__[f], k)){
               const v = window.localStorage.getItem(k);
               if(v != null){ try{ __fileCache__[f][k] = JSON.parse(v); }catch(e){ __fileCache__[f][k] = v; } }
-              needFlush = true;
             }
           }
+          __scheduleFlush__('history'); __scheduleFlush__('wrong'); __scheduleFlush__('favorites'); __scheduleFlush__('error_corrected'); __scheduleFlush__('notes'); __scheduleFlush__('answers'); __scheduleFlush__('motto');
         }catch(e){}
-        if(needFlush){
-          ['history','wrong','favorites','error_corrected','notes','answers','drafts'].forEach(f => { __scheduleFlush__(f); });
-        }
         showCloudStatus('ok');
         return; // 题库来自 bank_*.js（IIFE 初始化），无需 /api
       }catch(e){
@@ -3939,13 +3950,18 @@
         }
       }catch(e){}
       // 1) 用户数据文件（按当前科目目录）
-      const files = ['history','wrong','favorites','error_corrected','notes','answers','drafts'];
+      const files = ['history','wrong','favorites','error_corrected','notes','answers'];
       await Promise.all(files.map(async (f) => {
         try{
           const r = await fetch('/api/data/' + subj + '/' + f + '.json', { cache:'no-store' });
           if(r.ok){ __fileCache__[f] = await r.json(); }
         }catch(e){ /* 单文件失败不影响其它 */ }
       }));
+      // 全局文件（不按科目分目录）
+      try{
+        const mr = await fetch('/api/data/motto.json', { cache:'no-store' });
+        if(mr.ok){ __fileCache__['motto'] = await mr.json(); }
+      }catch(e){}
       // 2) 题库（按当前科目目录）
       const [cd, pp, ip] = await Promise.all([
         fetch('/api/data/' + subj + '/chapters.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
@@ -4669,47 +4685,5 @@ document.addEventListener('DOMContentLoaded', async () => {
   if(window.__QUIZ_TEST__){
     window.__quizInternals = { exportBackup, importBackup, mergeBackupPayload, collectBackupKeys, getQuestions, getHistoricalAnswersMap, clearOrphanStateOnce, seedFromServer, saveHistoryFile, loadHistoryFile, exportWrongSnapshot };
   }
-
-
-  // ===== 手机端：原来的紧贴屏幕按钮改为悬浮显示/隐藏 =====
-  function isMobileView(){
-    return window.innerWidth <= 767;
-  }
-  function closeMobilePanels(){
-    document.body.classList.remove('mobile-left-open', 'mobile-right-open');
-  }
-  // 事件委托：处理col-toggle按钮点击
-  document.addEventListener('click', (e) => {
-    if(!isMobileView()) return;
-    const toggleBtn = e.target.closest('.col-toggle');
-    if(!toggleBtn) return;
-    const side = toggleBtn.dataset.side;
-    if(!side) return;
-    e.stopPropagation();
-    e.preventDefault();
-    if(side === 'left'){
-      const isOpen = document.body.classList.contains('mobile-left-open');
-      closeMobilePanels();
-      if(!isOpen) document.body.classList.add('mobile-left-open');
-    } else if(side === 'right'){
-      const isOpen = document.body.classList.contains('mobile-right-open');
-      closeMobilePanels();
-      if(!isOpen){
-        document.body.classList.add('mobile-right-open');
-        // 展开正确答案与解析区块
-        if(typeof rightCollapsed !== 'undefined' && rightCollapsed.ans){
-          rightCollapsed.ans = false;
-          if(typeof applyRightCollapsed === 'function') applyRightCollapsed();
-        }
-      }
-    }
-  });
-  // 点击遮罩关闭
-  document.addEventListener('click', (e) => {
-    if(!isMobileView()) return;
-    if(e.target.classList.contains('mobile-panel-mask')){
-      closeMobilePanels();
-    }
-  });
 
 })();
