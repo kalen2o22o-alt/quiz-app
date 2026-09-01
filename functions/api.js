@@ -39,7 +39,7 @@ export async function onRequest(context) {
     'Vary': 'Origin',
   };
   const JSON_HEADERS = { ...CORS, 'Content-Type': 'application/json; charset=utf-8' };
-  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'drafts'];
+  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'drafts', 'motto'];
   const KVPrefix = 'quiz:';
 
   // ============ 新增：诊断接口 ============

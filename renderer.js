@@ -153,7 +153,8 @@
       const subj = getSubject();
       const failed = [];
       const promises = files.map(f => {
-        return (window.SupaStore || window.CloudStore).saveFile(subj, f, __fileCache__[f] || {})
+        const saveSubj = (f === 'motto') ? 'global' : subj;
+        return (window.SupaStore || window.CloudStore).saveFile(saveSubj, f, __fileCache__[f] || {})
           .catch(() => { failed.push(f); });
       });
       Promise.all(promises).then(() => {
@@ -3912,7 +3913,12 @@
       try{
         const subj = getSubject();
         const map = await (window.SupaStore || window.CloudStore).loadAll(subj);
-        ['history','wrong','favorites','error_corrected','notes','answers','motto'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
+        ['history','wrong','favorites','error_corrected','notes','answers'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
+        // motto 是全局文件，从 global 命名空间单独加载
+        try{
+          const mottoMap = await (window.SupaStore || window.CloudStore).loadAll('global');
+          __fileCache__['motto'] = (mottoMap && mottoMap['motto']) || {};
+        }catch(e){}
         // 首次上云：把本机旧 localStorage 业务记录并入云端命名空间，随后写入（避免丢历史）
         try{
           for(let i = 0; i < window.localStorage.length; i++){
