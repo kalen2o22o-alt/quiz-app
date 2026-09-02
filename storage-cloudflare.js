@@ -149,11 +149,15 @@
   }
 
   async function saveFile(subj, file, obj){
+    var body = JSON.stringify({ subj: subj, file: file, value: obj || {}, ns: nsSeed });
+    // keepalive 请求在 Cloudflare 上对较大 body 会被关闭连接（ERR_CONNECTION_CLOSED / Failed to fetch）
+    // 大数据（>8KB）改用普通请求，避免保存失败；小数据保留 keepalive 以支持页面关闭时发出
+    var useKeepalive = body.length <= 8192;
     var res = await fetch(baseUrl(), {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subj: subj, file: file, value: obj || {}, ns: nsSeed }),
-      keepalive: true
+      body: body,
+      keepalive: useKeepalive
     });
     if(!res.ok){ throw new Error('云端写入失败 HTTP ' + res.status); }
     return await res.json();
