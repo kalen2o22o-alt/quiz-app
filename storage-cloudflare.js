@@ -9,7 +9,7 @@
   var cfg = window.__CLOUDFLARE_CONFIG__;
   if(!cfg){ return; }
   var apiBase = String(cfg.apiBase || '').replace(/\/+$/, ''); // 留空 = 与前端同域 /api
-  var FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'drafts', 'motto'];
+  var FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'motto']; // drafts 仅本地，不同步云端
   var nsSeed = ''; // 口令哈希命名空间前缀（不知道口令就无法定位行）
 
   function simpleHash(str){
@@ -164,6 +164,8 @@
   }
 
   async function saveFile(subj, file, obj){
+    // 未交卷暂存（drafts）仅存本地，不上传云端（省 KV 写配额）
+    if(file === 'drafts') return { ok: true, skipped: true, localOnly: true };
     // 内容与上次已保存一致 → 跳过 PUT（不消耗 KV 写配额）
     var fp = fingerprint(obj || {});
     var cacheKey = subj + ':' + file;

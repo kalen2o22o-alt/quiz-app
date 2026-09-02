@@ -147,7 +147,7 @@
   let __dirty__ = {};
   let __flushTimer__ = null;
   function __flushAll__(keepalive){
-    const files = Object.keys(__dirty__);
+    const files = Object.keys(__dirty__).filter(f => f !== 'drafts'); // drafts 仅本地，永不上传
     if(!files.length) return;
     if(__SUPABASE_MODE__){
       const subj = getSubject();
@@ -224,6 +224,8 @@
   }
   function __scheduleFlush__(file){
     if(!__SERVER_MODE__) return; // 文件模式不写服务器
+    // 未交卷暂存（drafts：正在做的题/草稿/进行中状态）仅存本地，不上传云端（省 KV 写配额、避免高频 PUT）
+    if(file === 'drafts') return;
     __dirty__[file] = true;
     if(__flushTimer__) return;
     __flushTimer__ = setTimeout(() => { __flushTimer__ = null; __flushAll__(false); }, 400);
