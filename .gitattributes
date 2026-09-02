@@ -1,0 +1,11 @@
+# 统一行尾为 LF，避免 Windows CRLF/LF 差异导致 diff 混乱
+* text=auto eol=lf
+
+# 二进制文件不转换
+*.ttf binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
