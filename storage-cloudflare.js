@@ -148,7 +148,28 @@
     return out;
   }
 
+  // 内容指纹缓存：避免重复 PUT 同一内容（节省 KV 写配额）
+  // 指纹持久化到 localStorage：跨页面加载也能跳过相同内容的 PUT
+  var __fpStoreKey__ = 'quiz_cf_fp';
+  var __lastSaved__ = {};
+  try{
+    var _fpRaw = localStorage.getItem(__fpStoreKey__);
+    if(_fpRaw){ __lastSaved__ = JSON.parse(_fpRaw) || {}; }
+  }catch(e){}
+  function _fpSave(){
+    try{ localStorage.setItem(__fpStoreKey__, JSON.stringify(__lastSaved__)); }catch(e){}
+  }
+  function fingerprint(v){
+    try{ return simpleHash(JSON.stringify(v)); }catch(e){ return 'x'; }
+  }
+
   async function saveFile(subj, file, obj){
+    // 内容与上次已保存一致 → 跳过 PUT（不消耗 KV 写配额）
+    var fp = fingerprint(obj || {});
+    var cacheKey = subj + ':' + file;
+    if(__lastSaved__[cacheKey] === fp){
+      return { ok: true, skipped: true, key: cacheKey };
+    }
     var body = JSON.stringify({ subj: subj, file: file, value: obj || {}, ns: nsSeed });
     // keepalive 请求在 Cloudflare 上对较大 body 会被关闭连接（ERR_CONNECTION_CLOSED / Failed to fetch）
     // 大数据（>8KB）改用普通请求，避免保存失败；小数据保留 keepalive 以支持页面关闭时发出
@@ -160,6 +181,8 @@
       keepalive: useKeepalive
     });
     if(!res.ok){ throw new Error('云端写入失败 HTTP ' + res.status); }
+    __lastSaved__[cacheKey] = fp; // 保存成功后记录指纹
+    _fpSave();
     return await res.json();
   }
 
