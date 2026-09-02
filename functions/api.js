@@ -39,7 +39,7 @@ export async function onRequest(context) {
     'Vary': 'Origin',
   };
   const JSON_HEADERS = { ...CORS, 'Content-Type': 'application/json; charset=utf-8' };
-  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'drafts', 'motto'];
+  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'motto']; // drafts 仅本地，不同步云端
   const KVPrefix = 'quiz:';
 
   // ============ 新增：诊断接口 ============
@@ -114,9 +114,14 @@ export async function onRequest(context) {
     const incoming = body.value || {};
     const merged = mergeValues(current, incoming);
 
-    // P1：写入加 try/catch，不再让 Worker 崩溃为 500 HTML，返回可读错误
+    // 优化：若合并结果与 KV 现有值相同，跳过写回（省 KV 写配额 + CPU）
     try {
-      await env.QUIZ_KV.put(key, JSON.stringify(merged));
+      const mergedJson = JSON.stringify(merged);
+      if (current !== null && JSON.stringify(current) === mergedJson) {
+        return new Response(JSON.stringify({ ok: true, key: key, merged: false, skipped: true }), { status: 200, headers: JSON_HEADERS });
+      }
+      // P1：写入加 try/catch，不再让 Worker 崩溃为 500 HTML，返回可读错误
+      await env.QUIZ_KV.put(key, mergedJson);
     } catch (e) {
       return new Response(JSON.stringify({
         error: 'kv write failed',
