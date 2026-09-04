@@ -188,5 +188,37 @@
     return await res.json();
   }
 
-  window.CloudStore = { ready: true, unlock: unlock, loadAll: loadAll, saveFile: saveFile };
+  // 方案A：查询云端当日 KV 写入配额
+  async function quota(){
+    var res = await fetch(baseUrl() + '?quota=1', { method: 'GET' });
+    if(!res.ok){ throw new Error('配额读取失败 HTTP ' + res.status); }
+    return await res.json();
+  }
+
+  // 方案A：KV 当日写入配额余量角标（每 60s 刷新，仅云端模式激活）
+  function startQuotaMonitor(){
+    var badge = null;
+    function render(q){
+      try{
+        if(!badge){
+          badge = document.createElement('div');
+          badge.id = '__kv_quota_badge__';
+          badge.style.cssText = 'position:fixed;left:16px;bottom:16px;z-index:99997;padding:6px 12px;border-radius:6px;font-size:12px;font-family:system-ui,sans-serif;box-shadow:0 2px 8px rgba(0,0,0,.15);opacity:.92;pointer-events:none';
+          document.body.appendChild(badge);
+        }
+        var pct = q.pct || 0, hi = pct >= 80, mid = pct >= 50;
+        badge.style.background = hi ? '#fdecea' : (mid ? '#fff8e6' : '#e8f7ee');
+        badge.style.color = hi ? '#b02a2a' : (mid ? '#8a6d1a' : '#1d7a3e');
+        badge.textContent = '☁ 今日KV写入 ' + q.writes + '/' + q.limit + '（' + pct + '%）' + (hi ? ' 接近上限！' : '');
+      }catch(e){}
+    }
+    async function tick(){
+      try{ render(await quota()); }catch(e){ /* 网络失败静默，下次再试 */ }
+    }
+    tick();
+    setInterval(tick, 60000);
+  }
+
+  window.CloudStore = { ready: true, unlock: unlock, loadAll: loadAll, saveFile: saveFile, quota: quota };
+  startQuotaMonitor();
 })();

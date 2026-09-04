@@ -57,8 +57,8 @@
     { id: 'mid',  short: '中级', name: '中级会计', icon: '中级', examDate: '2026-09-05',
       subjects: [
         { id: 'mid-practice', name: '中级会计实务' },
-        { id: 'mid-finance',  name: '财务管理' },
-        { id: 'mid-econ',     name: '经济法' }
+        { id: 'mid-finance',  name: '中级财务管理' },
+        { id: 'mid-econ',     name: '中级经济法' }
       ]},
     { id: 'taxp', short: '税务师', name: '税务师', icon: '税务', examDate: '2026-11-14',
       subjects: [
@@ -91,7 +91,6 @@
     const ans = getLastAnswerFor(q._uid);
     return !!(ans && normAns(ans) !== normAns(q.answer));
   }
-  function isAutoWrong(q){ return isHistoricalWrong(q); } // 兼容旧名
   // 该题是否曾在【已交卷】session 中出现过作答：错题/手动判分只认已交卷记录，
   // 未交卷（进行中）作答仅作记忆保存，不进错题、不影响历史统计。
   function hasSubmittedAnswer(uid){
@@ -780,13 +779,17 @@
   }
   function ensureSession(mode, chapter, section){
     const cur = getCurrentSession();
-    const sameScope = (mode !== 'chapter') || (cur && cur.chapter === chapter && cur.section === section);
+    // 同范围判定：章节按「章+节」；冲刺模考/强化套卷按「套卷名」；其余模式（错题随机/机考）不续做
+    const sameScope = (mode === 'chapter') ? (cur && cur.chapter === chapter && cur.section === section)
+                    : (mode === 'paper')   ? (cur && cur.chapter === chapter)
+                    : false;
     const matched = cur && !cur.submitted && cur.mode === mode && sameScope;
-    if(matched) return cur; // 续做同节未交卷训练
-    // 已交卷的同节 session：保留 practice_state（含 submitted）与全局收藏，交给 loadState / enterReviewMode 恢复解析态，
-    // 避免刷新/重开已交卷章节时丢失解析（否则 stateKey 被清，退化成全新练习）
-    if(cur && cur.submitted && cur.mode === mode && sameScope) return cur;
-    // 异节 / 全新：先归档旧作答，再清空当前实时答案与本节状态，从零开始
+    if(matched) return cur; // 续做同节/同套卷未交卷训练
+    // 已交卷的【章节】session：保留 practice_state（含 submitted）与全局收藏，交给 loadState / enterReviewMode 恢复解析态，
+    // 避免刷新/重开已交卷章节时丢失解析（否则 stateKey 被清，退化成全新练习）。
+    // 已交卷的【套卷】不在此返回：重开即从零开始新卷，避免旧作答残留进做题页。
+    if(cur && cur.submitted && cur.mode === mode && sameScope && mode === 'chapter') return cur;
+    // 异节 / 全新 / 已交卷套卷重开：先归档旧作答，再清空当前实时答案与本节状态，从零开始
     if(cur && Object.keys(cur.answers || {}).length) archiveCurrentSession();
     const sess = newSession(mode, chapter, section);
     setCurrentSession(sess);
@@ -1663,6 +1666,8 @@
     const wrongLabel = manualWrong ? '<span class="tag tag-orange" style="margin-left:8px">手动判错</span>' : '';
     const wrongCountTag = q.wrongCount ? '<span class="wq-src" style="margin-left:6px">错'+q.wrongCount+'次</span>' : '';
     const analysisHtml = q.analysis ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body">'+fmtRich(q.analysis)+'</div></details>' : (q.tag ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>'+escapeHtml(q.tag)+'</p></div></details>' : '');
+    const draftText = getDraft(uid);
+    const draftHtml = '<details class="wq-exp wq-draft" open><summary><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>作答草稿</summary><div class="body"><textarea class="wq-draft-ta" data-uid="'+escapeHtml(uid)+'" rows="3" placeholder="记录你的思考，保存后同步到做题页…">'+escapeHtml(draftText)+'</textarea><div class="wq-draft-actions"><button class="btn btn-sm btn-primary wq-draft-save" type="button">保存</button><span class="wq-draft-msg"></span></div></div></details>';
     return `
       <article class="wq" data-uid="${escapeHtml(uid)}">
         <div class="wq-head">
@@ -1681,6 +1686,7 @@
           <span class="vline"></span>
           <span class="b">你的答案 <strong style="color:var(--color-danger-text)">${lastAns || '—'}</strong></span>
         </div>
+        ${draftHtml}
         ${analysisHtml}
         <div class="wq-act">
           <a class="btn btn-ghost btn-sm" href="题刷刷.html?chapter=${encodeURIComponent(q.chapter)}&section=${encodeURIComponent(q.section)}#practice">重做本题</a>
@@ -1690,6 +1696,18 @@
       </article>
     `;
   }
+  // 错题卡作答草稿：保存按钮（事件委托，动态渲染卡片也生效；保存后同步到 drafts，做题页/复盘可见）
+  document.addEventListener('click', function(e){
+    const btn = e.target.closest('.wq-draft-save');
+    if(!btn) return;
+    const box = btn.closest('.wq-draft');
+    if(!box) return;
+    const ta = box.querySelector('.wq-draft-ta');
+    if(!ta) return;
+    setDraft(ta.dataset.uid, ta.value);
+    const msg = box.querySelector('.wq-draft-msg');
+    if(msg){ msg.textContent = '已保存'; msg.classList.add('ok'); setTimeout(function(){ msg.textContent=''; msg.classList.remove('ok'); }, 1600); }
+  });
   function renderWrongPager(total, totalPages){
     const pager = document.getElementById('wq-pager');
     if(!pager) return;
@@ -2439,7 +2457,7 @@
       practiceChapter = paper.name || ('paper:' + practicePaperId);
       
       try {
-        const psess = ensureSession('paper', practicePaperId, '');
+        const psess = ensureSession('paper', practiceChapter, ''); // 传套卷名作 chapter：显示友好 + 同卷判定
         practiceSessionId = psess.id;
         
       } catch(e) {
@@ -3026,7 +3044,9 @@
       }
       return;
     }
-    optsEl.innerHTML = Object.entries(q.options).map(([k, v]) => {
+    // 判断题：自动生成 √/× 选项（不依赖 options 字段，与本地版一致）
+    const optSrc = q.type === 'judge' ? { '√': '正确', '×': '错误' } : (q.options || {});
+    optsEl.innerHTML = Object.entries(optSrc).map(([k, v]) => {
       const cls = ['opt'];
       const picked = uaSet.has(k.toUpperCase());
       let mk = '';
@@ -3444,6 +3464,7 @@
       sess.wrong = sc.wrong;
       sess.pending = sc.pending;
       sess.total = sc.total;
+      sess.paperId = practicePaperId; // 冲刺/强化套卷：记录 paperId，供练习历史/复盘按套卷取题渲染
       sess.answers = {};
       practiceQuestions.forEach((q, i) => { if(q._uid && practiceState.answers[i]) sess.answers[q._uid] = practiceState.answers[i]; });
       // 冗余存储完整题目快照（题目+正确答案+我的作答+解析），使 history.json 自包含可读
@@ -3958,7 +3979,7 @@
         }
       }catch(e){}
       // 1) 用户数据文件（按当前科目目录）
-      const files = ['history','wrong','favorites','error_corrected','notes','answers'];
+      const files = ['history','wrong','favorites','error_corrected','notes','answers','drafts']; // drafts 本地文件也需加载（草稿跨页回显）；上传仍单独排除
       await Promise.all(files.map(async (f) => {
         try{
           const r = await fetch('/api/data/' + subj + '/' + f + '.json', { cache:'no-store' });
@@ -4194,13 +4215,26 @@
   function renderPracticeHistory(){
     const page = document.getElementById('history-page');
     if(!page) return;
-    const qs = getQuestions();
+    const baseQs = getQuestions();
+    // 套卷记录（mode=paper）用对应套卷题渲染（题目字段完整、uid 与作答一致）；其他模式用当前题库
+    function qsFor(s){
+      if(s.mode === 'paper'){
+        for(const pid of [s.paperId, s.chapter]){
+          if(pid){ try{ const pq = getPaperQuestions(pid); if(pq && pq.length) return pq; }catch(e){} }
+        }
+        // 题库取不到时，用交卷时存下的题目快照兜底（uid→_uid）
+        if(Array.isArray(s.questions) && s.questions.length){
+          return s.questions.map(q => Object.assign({}, q, { _uid: q._uid || q.uid, verified: q.verified === true || (!!q.answer && isObjective(q)) }));
+        }
+      }
+      return baseQs;
+    }
     const byUid = {};
-    qs.forEach(q => { if(q._uid) byUid[q._uid] = q; });
+    baseQs.forEach(q => { if(q._uid) byUid[q._uid] = q; });
 
     // 按关统计总题数
     const sectionMap = {};
-    qs.forEach(q => {
+    baseQs.forEach(q => {
       const key = (q.chapter || '') + '||' + (q.section || '');
       sectionMap[key] = (sectionMap[key] || 0) + 1;
     });
@@ -4262,7 +4296,7 @@
     });
     const list = Object.values(groups).sort((a, b) => (b.endTime || b.startTime) - (a.endTime || a.startTime));
 
-    const modeNames = { all: '全部', chapter: '章节训练', wrong_random: '错题训练', exam: '全真模考', imported: '导入历史' };
+    const modeNames = { all: '全部', chapter: '章节训练', wrong_random: '错题训练', exam: '全真模考', paper: '冲刺模考', imported: '导入历史' };
 
     function pad(n){ return n < 10 ? '0' + n : '' + n; }
     function fmtDateTime(ts){
@@ -4285,10 +4319,12 @@
     let listHtml = '';
     list.forEach((s, idx) => {
       let answered = 0, correct = 0, wrong = 0, pending = 0, objCorrect = 0;
+      const sByUid = {};
+      qsFor(s).forEach(q => { if(q._uid) sByUid[q._uid] = q; });
       Object.entries(s.answers || {}).forEach(([uid, ans]) => {
         if(!ans) return;
         answered++;
-        const q = byUid[uid];
+        const q = sByUid[uid];
         if(!q) return;
         const r = judgeOne(q, ans);
         if(r.state === 'correct'){ correct++; if(isObjective(q)) objCorrect++; }
@@ -4303,7 +4339,11 @@
       const when = fmtDateTime(s.endTime || s.startTime);
       const dur = s.elapsed ? fmtSec(s.elapsed) : (s.startTime && s.endTime ? fmtSec(Math.round((s.endTime - s.startTime) / 1000)) : '—');
       const modeName = modeNames[s.mode] || '章节训练';
-      const title = s.section ? ((s.chapter || '') + ' ' + s.section) : (s.mode === 'wrong_random' ? '错题随机训练' : (s.mode === 'exam' ? '全真模考' : '导入历史'));
+      const title = s.section ? ((s.chapter || '') + ' ' + s.section)
+        : (s.mode === 'wrong_random' ? '错题随机训练'
+          : (s.mode === 'exam' ? '全真模考'
+            : (s.mode === 'paper' ? (s.chapter || '冲刺模考套卷')
+              : (s.mode === 'imported' ? '导入历史' : (s.chapter || '章节训练')))));
       const flowSum = '<div class="hist-flow-sum">' +
         '<span>共<b>' + total + '</b>题</span>' +
         '<span>已做<b>' + answered + '</b>题</span>' +
@@ -4311,7 +4351,7 @@
         '<span>客观题答对<b>' + objCorrect + '</b>题</span>' +
         (acc !== null ? '<span class="fs-rate ' + (acc >= 60 ? 'good' : 'bad') + '">正确率<b>' + acc.toFixed(1) + '%</b></span>' : '') +
         '</div>';
-      const detailHtml = flowSum + renderHistoryFlow(s, qs);
+      const detailHtml = flowSum + renderHistoryFlow(s, qsFor(s));
       const unsubTip = s.submitted ? '' : '<span style="color:var(--color-primary-strong)">未交卷</span>';
 
       listHtml +=
@@ -4346,6 +4386,7 @@
           '<button class="history-tab ' + (historyModeFilter === 'chapter' ? 'is-active' : '') + '" data-mode="chapter">章节训练</button>' +
           '<button class="history-tab ' + (historyModeFilter === 'wrong_random' ? 'is-active' : '') + '" data-mode="wrong_random">错题训练</button>' +
           '<button class="history-tab ' + (historyModeFilter === 'exam' ? 'is-active' : '') + '" data-mode="exam">全真模考</button>' +
+          '<button class="history-tab ' + (historyModeFilter === 'paper' ? 'is-active' : '') + '" data-mode="paper">冲刺模考</button>' +
           '<button class="history-tab ' + (historyModeFilter === 'imported' ? 'is-active' : '') + '" data-mode="imported">导入历史</button>' +
         '</div>' +
         '<div class="history-datefilter"><span>日期：</span>' +
@@ -4398,10 +4439,10 @@
     try {
       const p = encodeURIComponent(JSON.stringify({
         id: s.id, mode: s.mode, chapter: s.chapter, section: s.section,
-        answers: s.answers, startTime: s.startTime, endTime: s.endTime,
+        paperId: s.paperId, answers: s.answers, startTime: s.startTime, endTime: s.endTime,
         elapsed: s.elapsed, submitted: s.submitted
       }));
-      return '#review?p=' + p;
+      return '#review?sid=' + encodeURIComponent(s.id || '') + '&p=' + p;
     } catch(e) {
       return '#review?sid=' + encodeURIComponent(s.id || '');
     }
@@ -4421,23 +4462,36 @@
     }
     // 优先读取 URL 内嵌的练习记录(新窗口/跨页独立可用)；否则回退到按 sid 查 localStorage
     let s = null;
-    const pRaw = reviewParam('p');
-    if(pRaw){ try { s = JSON.parse(pRaw); } catch(e){ s = null; } }
-    if(!s){ const sid = reviewParam('sid'); const sessions = getSessions(); s = sessions.find(x => x.id === sid); }
+    // 优先按 sid 从本机 sessions 取完整记录（含 paperId 与题目快照，复盘渲染最完整）；p 内嵌 JSON 作兜底
+    const sid = reviewParam('sid');
+    if(sid){ const sessions = getSessions(); s = sessions.find(x => x.id === sid); }
+    if(!s){ const pRaw = reviewParam('p'); if(pRaw){ try { s = JSON.parse(pRaw); } catch(e){ s = null; } } }
     if(!s){
       container.innerHTML = '<div class="history-empty"><p>未找到该练习记录。</p><p><a href="#history">返回练习历史</a></p></div>';
       return;
     }
-    const qs = getQuestions();
+    let qsrc = getQuestions();
+    // 套卷记录（mode=paper）：用对应套卷题渲染，否则在章节题库里取不到 paper 题 → 复盘页空白
+    if(s.mode === 'paper'){
+      let pq = null;
+      for(const pid of [s.paperId, s.chapter]){
+        if(pid){ try{ pq = getPaperQuestions(pid); if(pq && pq.length) break; }catch(e){ pq = null; } }
+      }
+      if(pq && pq.length){ qsrc = pq; }
+      else if(Array.isArray(s.questions) && s.questions.length){
+        // 题库取不到（套卷更名/题库版本变化/旧数据）时，用交卷时存下的题目快照兜底（uid→_uid），客观题补 verified
+        qsrc = s.questions.map(q => Object.assign({}, q, { _uid: q._uid || q.uid, verified: q.verified === true || (!!q.answer && isObjective(q)) }));
+      }
+    }
     const byUid = {};
-    qs.forEach(q => { if(q._uid) byUid[q._uid] = q; });
+    qsrc.forEach(q => { if(q._uid) byUid[q._uid] = q; });
 
     // 决定题目范围：章节/关训练 -> 该关全部题；错题随机训练 -> 仅作答过的题
     let list = [];
     if(s.chapter && s.section){
-      list = qs.filter(q => q.chapter === s.chapter && q.section === s.section);
+      list = qsrc.filter(q => q.chapter === s.chapter && q.section === s.section);
     } else {
-      list = qs.filter(q => q._uid && s.answers && s.answers[q._uid] != null);
+      list = qsrc.filter(q => q._uid && s.answers && s.answers[q._uid] != null);
     }
     // 保持原题序
     list = list.slice().sort((a, b) => {
@@ -4526,10 +4580,10 @@
     container.innerHTML = flowHtml;
 
     // 左侧训练情况
-    const modeNames = { chapter: '初出茅庐', wrong_random: '小有成就', exam: '全真模考', imported: '导入历史' };
+    const modeNames = { chapter: '初出茅庐', wrong_random: '小有成就', exam: '全真模考', paper: '冲刺模考', imported: '导入历史' };
     const denom = correct + wrong;
     const acc = denom ? (correct / denom * 100) : null;
-    const titleScope = s.section ? (s.chapter + ' ' + s.section) : (s.mode === 'wrong_random' ? '错题随机训练' : (s.mode === 'exam' ? '全真模考' : '导入历史'));
+    const titleScope = s.section ? (s.chapter + ' ' + s.section) : (s.mode === 'wrong_random' ? '错题随机训练' : (s.mode === 'exam' ? '全真模考' : (s.mode === 'paper' ? (s.chapter || '冲刺模考') : '导入历史')));
     document.getElementById('tb-scope').textContent = titleScope;
     document.getElementById('info-mode').textContent = modeNames[s.mode] || '章节训练';
     document.getElementById('info-chapter').textContent = s.chapter || '—';

@@ -18,8 +18,12 @@
 (function(){
   if (typeof window !== 'undefined' && !window.__CLOUDFLARE_CONFIG__) {
     var host = location.hostname || '';
-    // 线上域名（pages.dev / 自定义域名）自动启用云端模式
-    if (host.indexOf('pages.dev') >= 0 || host.indexOf('quiz-app') >= 0) {
+    // P2-2 修复：除 pages.dev / quiz-app 外，支持自定义域名与 ?cloud=1 强制启用。
+    // 自定义域名部署：把域名（如 'quiz.example.com'）加进下方 CUSTOM_DOMAINS 即可自动启用云端。
+    // 排查用：URL 后加 ?cloud=1 可临时强制启用云端模式。
+    var CUSTOM_DOMAINS = [];
+    var forcedCloud = /[?&]cloud=1/.test(location.search || '');
+    if (host.indexOf('pages.dev') >= 0 || host.indexOf('quiz-app') >= 0 || CUSTOM_DOMAINS.indexOf(host) >= 0 || forcedCloud) {
       window.__CLOUDFLARE_CONFIG__ = { apiBase: '', requirePassphrase: true };
     }
   }

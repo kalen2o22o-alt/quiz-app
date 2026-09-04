@@ -8,6 +8,7 @@
 //   3. GET 读取失败不再伪装成空数据（附带 __kvError 字段，前端可据此显示真实状态）
 //
 // 接口：
+//   GET  /api?quota=1                     → 当日 KV 写入配额（writes/limit/pct，方案A）
 //   GET  /api?diag=1                      → 诊断 KV 绑定状态
 //   GET  /api?subj=<科目id>&ns=<口令命名空间>  → { history, wrong, favorites, error_corrected, notes, answers, drafts }
 //   PUT  /api  body:{ subj, file, value, ns }  → 写入 KV（服务端自动合并，防双端覆盖）
@@ -15,6 +16,26 @@
 
 // 模块级内存限流计数（不写 KV，避免消耗 KV 写配额）
 const rateMap = new Map();
+
+// ============ 方案A：KV 当日真实写入计数（配额可见性） ============
+// 内存计数为主，每累计 20 次真写或跨小时时低频持久化 1 次到 KV；
+// 冷启动后首次查询 quota 时从 KV 恢复基线。计数键本身占少量写入（≤5%）。
+const WRITE_LIMIT = 1000;   // Cloudflare KV 免费版每日写入上限
+let writeCount = 0;         // 本进程当日累计真实写入
+let writeDay = '';          // 计数归属日期（UTC，与 Cloudflare 日配额对齐）
+let loadedFlag = false;     // 当日是否已从 KV 恢复过基线
+let lastFlushHr = 0;        // 上次持久化的整点小时
+function todayStr(){ return new Date().toISOString().slice(0, 10); }
+function ensureDay(){ const d = todayStr(); if(writeDay !== d){ writeDay = d; writeCount = 0; loadedFlag = false; } }
+async function flushCounter(env, force){
+  try{
+    if(!env || !env.QUIZ_KV) return;
+    const hr = Math.floor(Date.now() / 3600000);
+    if(!force && writeCount % 20 !== 0 && hr === lastFlushHr) return;
+    lastFlushHr = hr;
+    await env.QUIZ_KV.put(KVPrefix + '__budget__:day:' + writeDay, JSON.stringify({ c: writeCount }));
+  }catch(e){ /* 计数持久化失败不影响主流程 */ }
+}
 
 export async function onRequest(context) {
   const { request, env } = context;
@@ -49,6 +70,25 @@ export async function onRequest(context) {
       kvBound: !!(env && env.QUIZ_KV),
       envKeys: Object.keys(env || {}),
       time: Date.now(),
+    }), { status: 200, headers: JSON_HEADERS });
+  }
+
+  // ============ 方案A：KV 当日写入配额查询（放在限流前，轮询不消耗限流额度） ============
+  if (url.searchParams.get('quota') === '1') {
+    ensureDay();
+    if(!loadedFlag){
+      loadedFlag = true;
+      try{
+        const kv = await env.QUIZ_KV.get(KVPrefix + '__budget__:day:' + writeDay, 'json');
+        if(kv && typeof kv.c === 'number') writeCount = kv.c;
+      }catch(e){}
+    }
+    return new Response(JSON.stringify({
+      day: writeDay,
+      writes: writeCount,
+      limit: WRITE_LIMIT,
+      remaining: Math.max(0, WRITE_LIMIT - writeCount),
+      pct: Math.min(100, Math.round(writeCount / WRITE_LIMIT * 100)),
     }), { status: 200, headers: JSON_HEADERS });
   }
 
@@ -122,6 +162,10 @@ export async function onRequest(context) {
       }
       // P1：写入加 try/catch，不再让 Worker 崩溃为 500 HTML，返回可读错误
       await env.QUIZ_KV.put(key, mergedJson);
+      // 方案A：真实写入计数 + 低频持久化
+      ensureDay();
+      writeCount++;
+      await flushCounter(env, false);
     } catch (e) {
       return new Response(JSON.stringify({
         error: 'kv write failed',

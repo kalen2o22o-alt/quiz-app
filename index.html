@@ -1026,7 +1026,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 .tag-teal{background:rgba(192,59,43,.14);color:var(--color-primary-strong)}
 .tag-green{background:var(--color-success-soft);color:var(--color-success-text)}
 .tag-red{background:var(--color-danger-soft);color:var(--color-danger-text)}
-.wq-src{color:var(--color-text-secondary)}
+.wq-src{color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .wq-src b{color:var(--color-text-primary);font-weight:600}
 .dot{width:3px;height:3px;border-radius:50%;background:#C3CBD6}
 .wq-head .sp{margin-left:auto;display:flex;align-items:center;gap:10px}
@@ -1072,6 +1072,12 @@ span.q-tbl{font-family:Consolas,"Courier New",monospace;white-space:pre;display:
 .wq-exp .body{font-size:14px;line-height:1.8;color:#1E293B;padding:12px 0 4px;max-width:840px}
 .wq-exp .body b{font-weight:600}
 .wq-exp .calc{font-family:var(--num);background:var(--color-surface-muted);border-radius:6px;padding:2px 6px;font-size:13px}
+  .wq-draft summary{color:#B45309}
+  .wq-draft-ta{width:100%;min-height:64px;border:1px solid var(--color-border);border-radius:8px;padding:8px 10px;font-size:14px;line-height:1.7;background:#fff;resize:vertical;font-family:inherit;box-sizing:border-box}
+  .wq-draft-ta:focus{outline:none;border-color:var(--color-primary-strong)}
+  .wq-draft-actions{display:flex;align-items:center;gap:10px;margin-top:8px}
+  .wq-draft-msg{font-size:12px;color:var(--color-success-text)}
+  .wq-draft .body{background:var(--color-surface-muted);border-radius:8px;padding:10px 12px;margin-top:8px;white-space:pre-wrap;color:#57534E}
 .kp{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .kp span{font-size:11px;font-weight:500;color:var(--color-text-secondary);background:var(--color-surface-muted);
   border-radius:5px;padding:3px 8px}
@@ -1262,7 +1268,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 .tag-teal{background:rgba(192,59,43,.14);color:var(--color-primary-strong)}
 .tag-green{background:var(--color-success-soft);color:var(--color-success-text)}
 .tag-red{background:var(--color-danger-soft);color:var(--color-danger-text)}
-.wq-src{color:var(--color-text-secondary)}
+.wq-src{color:var(--color-text-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .wq-src b{color:var(--color-text-primary);font-weight:600}
 .dot{width:3px;height:3px;border-radius:50%;background:#C3CBD6}
 .wq-head .sp{margin-left:auto;display:flex;align-items:center;gap:10px}
@@ -1303,6 +1309,12 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 .wq-exp .body{font-size:14px;line-height:1.8;color:#1E293B;padding:12px 0 4px;max-width:840px}
 .wq-exp .body b{font-weight:600}
 .wq-exp .calc{font-family:var(--num);background:var(--color-surface-muted);border-radius:6px;padding:2px 6px;font-size:13px}
+  .wq-draft summary{color:#B45309}
+  .wq-draft-ta{width:100%;min-height:64px;border:1px solid var(--color-border);border-radius:8px;padding:8px 10px;font-size:14px;line-height:1.7;background:#fff;resize:vertical;font-family:inherit;box-sizing:border-box}
+  .wq-draft-ta:focus{outline:none;border-color:var(--color-primary-strong)}
+  .wq-draft-actions{display:flex;align-items:center;gap:10px;margin-top:8px}
+  .wq-draft-msg{font-size:12px;color:var(--color-success-text)}
+  .wq-draft .body{background:var(--color-surface-muted);border-radius:8px;padding:10px 12px;margin-top:8px;white-space:pre-wrap;color:#57534E}
 .kp{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
 .kp span{font-size:11px;font-weight:500;color:var(--color-text-secondary);background:var(--color-surface-muted);
   border-radius:5px;padding:3px 8px}
@@ -2226,7 +2238,7 @@ a:hover{color:var(--color-primary-deep)}
 /* ============================ 102. 学习中心 · 豆包版 v2 复刻（逐条同 v2 CSS） ============================ */
 .lc-page{max-width:none;margin:0;padding:20px 24px 70px}   /* v2 .main 布局：全宽 */
 .hero{position:relative;color:#fff;border-radius:var(--radius-card);padding:22px 28px 20px;margin-bottom:24px;
-  background:linear-gradient(135deg,#3A3833 0%,#2B2B28 55%,#23211E 100%);box-shadow:var(--shadow-floating);overflow:visible}
+  background:linear-gradient(135deg,#3A3833 0%,#2B2B28 55%,#23211E 100%);box-shadow:var(--shadow-floating);overflow:hidden}
 .hero::after{content:"";position:absolute;right:-40px;top:-40px;width:220px;height:220px;border-radius:50%;
   background:radial-gradient(circle,rgba(192,59,43,.30),transparent 70%);pointer-events:none}
 .hero h2{font-size:21px;font-weight:700;letter-spacing:.5px;display:flex;align-items:center;gap:10px;position:relative;z-index:1}
@@ -3336,6 +3348,11 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
 
   <div class="cols">
 
+    <!-- 左栏折叠按钮（与做题页一致，保证 .cols 5 元素 grid 对齐，复盘页题目流不被挤进 36px 折叠列） -->
+    <button class="col-toggle-mini col-toggle" data-side="left" type="button" title="收起左侧栏" aria-label="收起左侧栏">
+      <svg viewBox="0 0 24 24"><path d="M14.5 6 8.5 12l6 6"/></svg>
+    </button>
+
     <!-- ================= 左栏：导航 + 答题卡 ================= -->
     <div class="col-left sticky">
 
@@ -3375,6 +3392,13 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
     <div class="col-mid" id="review-flow">
       <!-- JS 渲染该次练习的全部题目（题干 + 选项高亮 + 判定 + 解析） -->
       <article class="q-card"><p class="stem">加载中…</p></article>
+    </div>
+
+    <!-- 右侧分隔条（与做题页一致：:has() 命中后 .cols 使用 4 列 grid，col-mid 恢复正常宽度） -->
+    <div class="v-splitter" data-side="right">
+      <button class="col-toggle" data-side="right" type="button" title="隐藏右侧栏" aria-label="隐藏右侧栏">
+        <svg viewBox="0 0 24 24"><path d="M9.5 6l6 6-6 6"/></svg>
+      </button>
     </div>
 
     <!-- ================= 右栏：本关训练摘要 + 图例 ================= -->
