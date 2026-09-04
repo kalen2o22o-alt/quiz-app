@@ -2506,6 +2506,14 @@ body.left-collapsed .left-toggle-float{display:none !important}
 .note-card .nc-ops button{width:30px;height:30px;border:none;background:transparent;border-radius:8px;display:grid;place-items:center;color:var(--color-text-tertiary);cursor:pointer;transition:background .15s,color .15s}
 .note-card .nc-ops button:hover{background:var(--color-surface-muted);color:var(--color-text-primary)}
 .note-card .nc-ops button.nc-del:hover{color:var(--color-danger-text);background:rgba(192,59,43,.08)}
+/* 笔记卡片标签 */
+.note-card .nc-tags{display:flex;flex-wrap:wrap;gap:6px;margin:2px 0 8px}
+.note-card .nc-tags .nc-tag{font-size:11px;line-height:1;padding:4px 9px;border-radius:999px;background:rgba(24,95,165,.10);color:#185FA5;border:1px solid rgba(24,95,165,.18)}
+.note-card .nc-tags .nc-tag::before{content:"#";opacity:.6;margin-right:2px}
+/* 笔记标签搜索框 */
+.note-tag-search{flex:1;min-width:120px;max-width:220px;height:34px;padding:0 12px;font-size:13px;color:var(--color-text-primary);background:var(--color-surface-muted);border:1px solid transparent;border-radius:9px;outline:none;transition:border-color .15s,background .15s}
+.note-tag-search:focus{background:var(--color-surface);border-color:var(--color-primary-light)}
+.note-tag-search::-webkit-search-cancel-button{-webkit-appearance:none}
 .note-card .nc-ops svg{width:15px;height:15px;stroke:currentColor;stroke-width:2;fill:none;stroke-linecap:round;stroke-linejoin:round}
 .note-empty{grid-column:1/-1;text-align:center;padding:70px 20px;color:var(--color-text-tertiary)}
 .note-empty .ne-ico{width:64px;height:64px;margin:0 auto 14px;border-radius:20px;background:var(--color-surface-muted);display:grid;place-items:center}
@@ -2542,6 +2550,8 @@ body.left-collapsed .left-toggle-float{display:none !important}
 .quiz-ctrl{display:flex;align-items:center;gap:10px}
 .quiz-ctrl .btn{min-width:92px}
 .quiz-ctrl .sp{flex:1;text-align:center;font-family:var(--num);font-size:13px;color:var(--color-text-primary);background:rgba(255,255,255,.16);border-radius:999px;padding:6px 14px}
+/* 电脑模式：row 包裹层透明化，保持原单行 5 按钮（手机 media 内覆盖为两行） */
+.quiz-ctrl .qc-row1,.quiz-ctrl .qc-row2{display:contents}
 /* ============ 移动端适配（≤767px 手机） ============ */
 /* 移动端导航组件默认隐藏（仅 ≤767px 显示，避免 PC 端占位破坏布局） */
 .m-nav-btn,.m-drawer,.m-drawer-mask{display:none}
@@ -2642,6 +2652,28 @@ body.left-collapsed .left-toggle-float{display:none !important}
   .mobile-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:200}
   body.mode-practice.mobile-show-left .mobile-overlay,
   body.mode-practice.mobile-show-right .mobile-overlay{display:block}
+
+  /* —— 学习笔记：标签搜索框 + 抽查卡片 80% + 两行操作 —— */
+  .toolbar{flex-wrap:wrap}
+  .note-tag-search{flex:1 1 100%;max-width:none;order:3;height:36px;font-size:14px;margin-top:2px}
+  /* 抽查卡片：屏幕比例 80%（高） */
+  .quiz-shell{max-width:none}
+  .quiz-mask{padding:16px;overflow-y:auto;-webkit-overflow-scrolling:touch}
+  .quiz-shell{min-height:min-content;padding-bottom:8px}
+  .quiz-inner{height:80vh;max-height:80vh}
+  .quiz-face{padding:22px 20px}
+  .qf-title{font-size:18px;line-height:1.55}
+  .qb-body{font-size:15px;line-height:1.9;margin:12px 0}
+  /* 抽查操作区两行 */
+  .quiz-ctrl-grid{flex-direction:column;gap:10px}
+  .quiz-ctrl-grid .qc-row1,.quiz-ctrl-grid .qc-row2{display:flex;align-items:center;gap:10px;width:100%}
+  .quiz-ctrl-grid .qc-row1 .btn,.quiz-ctrl-grid .qc-row2 .btn{flex:1;min-width:0}
+  .quiz-ctrl-grid .qc-row2 .sp{flex:1;text-align:center;font-family:var(--num);font-size:13px;color:var(--color-text-primary);background:rgba(255,255,255,.16);border-radius:999px;padding:8px 6px}
+
+  /* —— 顶部黑底栏：手机窄屏修复内容叠加（crumb 收缩 + 搜索框缩窄靠右） —— */
+  .crumb{flex:1;min-width:0;max-width:calc(100% - 190px)}
+  .tb-search{position:static;transform:none;width:110px;flex:0 0 auto;margin-right:52px !important;margin-left:6px;font-size:12px}
+  .topbar-brand{right:10px}
 }
 
   /* 强制隐藏侧边栏我的错题数量角标 */
@@ -2738,6 +2770,11 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
       <svg viewBox="0 0 24 24"><path d="M4.4 19.6h4L18.2 9.8l-4-4L4.4 15.6z"/><path d="M14.2 5.8 18.2 9.8"/></svg>
       <span class="sb-txt">学习笔记</span>
     </a>
+    <div class="sb-group">同步</div>
+    <a class="sb-item sb-sync-btn" href="javascript:void(0)" id="m-sync-btn">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      <span class="sb-txt">云端同步</span>
+    </a>
   </nav>
 </aside>
 <aside class="sidebar">
@@ -2793,6 +2830,11 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
     <a class="sb-item" href="#note" data-view="note">
       <svg viewBox="0 0 24 24"><path d="M4.4 19.6h4L18.2 9.8l-4-4L4.4 15.6z"/><path d="M14.2 5.8 18.2 9.8"/></svg>
       <span class="sb-txt">学习笔记</span>
+    </a>
+    <div class="sb-group">同步</div>
+    <a class="sb-item sb-sync-btn" href="javascript:void(0)" id="d-sync-btn">
+      <svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+      <span class="sb-txt">云端同步</span>
     </a>
   </nav>
 
@@ -3447,6 +3489,7 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
         <button class="on" data-filter="all">全部</button>
         <button data-filter="review">待复习</button>
       </div>
+      <input class="note-tag-search" id="note-tag-search" type="search" placeholder="按标签搜索（如：长投）" aria-label="按标签搜索知识点" />
       <div class="right">
         <span class="count" id="note-count">共 <b>0</b> 条</span>
         <button class="btn btn-secondary" id="btn-note-quiz" type="button">
@@ -3473,6 +3516,10 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
       <div class="fld">
         <label for="note-title">知识点标题</label>
         <input id="note-title" maxlength="60" placeholder="如：资产负债表日后调整事项" />
+      </div>
+      <div class="fld">
+        <label for="note-tag">知识点标签（可填多个，用逗号或空格分隔，如：长投, 合并报表）</label>
+        <input id="note-tag" maxlength="40" placeholder="如：长投、投资性房地产" />
       </div>
       <div class="fld">
         <label for="note-content">内容要点</label>
@@ -3510,15 +3557,57 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
         </div>
       </div>
     </div>
-    <div class="quiz-ctrl">
-      <button class="btn btn-secondary" id="btn-quiz-prev" type="button">上一张</button>
-      <button class="btn btn-secondary" id="btn-quiz-shuffle" type="button">随机</button>
-      <span class="sp" id="quiz-progress">1 / 5</span>
-      <button class="btn btn-secondary" id="btn-quiz-wrong" type="button" style="color:var(--color-danger-text)">还要复习 ↻</button>
-      <button class="btn btn-teal" id="btn-quiz-right" type="button">记住了 ✓</button>
+    <div class="quiz-ctrl quiz-ctrl-grid">
+      <div class="qc-row1">
+        <button class="btn btn-secondary" id="btn-quiz-prev" type="button">上一张</button>
+        <button class="btn btn-secondary" id="btn-quiz-shuffle" type="button">随机</button>
+        <button class="btn btn-secondary" id="btn-quiz-next" type="button">下一张</button>
+      </div>
+      <div class="qc-row2">
+        <button class="btn btn-secondary" id="btn-quiz-wrong" type="button" style="color:var(--color-danger-text)">还要复习 ↻</button>
+        <span class="sp" id="quiz-progress">1 / 5</span>
+        <button class="btn btn-teal" id="btn-quiz-right" type="button">记住了 ✓</button>
+      </div>
     </div>
   </div>
 </div></template>
+
+<div class="modal-mask" id="err-editor" style="display:none">
+  <div class="modal" style="max-width:640px;text-align:left;display:flex;flex-direction:column;max-height:calc(100vh - 40px);overflow:hidden">
+    <div class="modal-head" style="text-align:left;padding:24px 24px 8px;flex-shrink:0">
+      <h3>修改题目</h3>
+      <p id="err-editor-meta" style="font-size:12px;color:var(--color-text-secondary);margin-top:4px"></p>
+    </div>
+    <div class="card-b" style="overflow-y:auto;flex:1 1 auto;min-height:0">
+      <div class="fld">
+        <label for="err-edit-stem">题干（含 Tab 键的连续行会自动排成表格）</label>
+        <textarea id="err-edit-stem" rows="5" style="font-family:inherit"></textarea>
+      </div>
+      <div class="fld" id="err-edit-opts-wrap">
+        <label>选项</label>
+        <div id="err-edit-opts" style="display:flex;flex-direction:column;gap:8px"></div>
+      </div>
+      <div class="fld" id="err-edit-answer-wrap">
+        <label for="err-edit-answer" id="err-edit-answer-label">正确答案</label>
+        <input id="err-edit-answer" maxlength="20" placeholder="单选填字母（如 A）；多选用逗号分隔（如 A,B）；判断题填 √ 或 ×" />
+      </div>
+      <div class="fld">
+        <label for="err-edit-analysis">解析</label>
+        <textarea id="err-edit-analysis" rows="5" style="font-family:inherit"></textarea>
+      </div>
+      <div class="fld">
+        <label>渲染预览（保存前查看表格/题干效果）</label>
+        <div id="err-edit-preview" class="wq-stem" style="border:1px dashed var(--color-border,#e4e3dd);border-radius:8px;padding:12px;min-height:40px;font-size:14px;line-height:1.7"></div>
+      </div>
+    </div>
+    <div class="modal-actions" style="flex-shrink:0;border-top:1px solid var(--color-border,#e4e3dd);padding-top:14px">
+      <span id="err-edit-status" style="font-size:12px;color:var(--color-danger-text,#C03B2B);margin-right:auto"></span>
+      <button class="btn btn-secondary" id="btn-err-edit-cancel" type="button">取消</button>
+      <button class="btn btn-primary" id="btn-err-edit-save" type="button">保存修改</button>
+    </div>
+  </div>
+</div>
+
 <script>
   function toggleCh(id){
     var el = document.getElementById(id);
@@ -3712,6 +3801,9 @@ body.mode-practice .card-b .legend{justify-content:center !important}
   .tb-search{position:absolute;right:18px;top:50%;transform:translateY(-50%);height:30px;width:180px;border:1px solid rgba(255,255,255,.16);border-radius:999px;padding:0 12px;font-size:12px;font-family:inherit;outline:none;background:rgba(255,255,255,.08);color:#fff;transition:border-color .15s,width .15s,background .15s}
   .tb-search::placeholder{color:rgba(255,255,255,.55)}
   .tb-search:focus{border-color:rgba(244,199,185,.6);width:200px;background:rgba(255,255,255,.12)}
+  @media (max-width:767px){
+    .tb-search{position:static !important;transform:none !important;width:110px !important;flex:0 0 auto !important;margin-right:52px !important;margin-left:6px !important}
+  }
   .ch-search-hl{background:rgba(192,59,43,.05) !important;box-shadow:inset 0 0 0 1px rgba(192,59,43,.14)}
   .ch-search-hl mark{background:#FFE9B8;color:#8A2818;font-weight:700;border-radius:3px;padding:0 2px}
   /* 通用页面搜索（错题/收藏/历史/笔记/冲刺模考）高亮 */
@@ -4081,5 +4173,122 @@ body.mode-practice .card-b .legend{justify-content:center !important}
 })();
 </script>
 <div class="mobile-overlay" id="mobile-overlay"></div>
+<!-- ========== 云端同步弹窗 ========== -->
+<div class="sync-modal-mask" id="sync-modal-mask" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:99998;align-items:center;justify-content:center">
+  <div class="sync-modal" id="sync-modal" style="background:#fff;border-radius:14px;padding:24px 26px;width:360px;box-shadow:0 10px 40px rgba(0,0,0,.25);font-family:system-ui,sans-serif">
+    <div style="font-size:16px;font-weight:600;color:#1f2329;margin-bottom:4px">云端同步</div>
+    <div style="font-size:13px;color:#7a7f87;margin-bottom:14px;line-height:1.6">输入在线访问口令，将本地数据与云端双向同步（含语录、错题、收藏等）</div>
+    <input id="sync-pw" type="password" style="width:100%;box-sizing:border-box;padding:10px 12px;border:1px solid #d0d3d9;border-radius:8px;font-size:14px;outline:none" placeholder="访问口令"/>
+    <div id="sync-err" style="color:#c0392b;font-size:12px;min-height:18px;margin:6px 0"></div>
+    <div id="sync-result" style="margin-bottom:12px;display:none"></div>
+    <div id="sync-loading" style="display:none;text-align:center;padding:16px 0">
+      <div style="display:inline-block;width:28px;height:28px;border:3px solid #e5e7eb;border-top-color:#185FA5;border-radius:50%;animation:sync-spin 0.8s linear infinite"></div>
+      <div style="font-size:13px;color:#6b7280;margin-top:8px">正在同步，请稍候...</div>
+    </div>
+    <style>@keyframes sync-spin{to{transform:rotate(360deg)}}</style>
+    <div style="display:flex;gap:10px">
+      <button id="sync-cancel" style="flex:1;padding:10px;border:1px solid #d0d3d9;border-radius:8px;background:#fff;color:#555;font-size:14px;cursor:pointer">取消</button>
+      <button id="sync-ok" style="flex:1;padding:10px;border:0;border-radius:8px;background:#185FA5;color:#fff;font-size:14px;cursor:pointer">开始同步</button>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var mask = document.getElementById('sync-modal-mask');
+  var pwInput = document.getElementById('sync-pw');
+  var errEl = document.getElementById('sync-err');
+  var resultEl = document.getElementById('sync-result');
+  var loadingEl = document.getElementById('sync-loading');
+  var okBtn = document.getElementById('sync-ok');
+  var cancelBtn = document.getElementById('sync-cancel');
+
+  function openSync(){
+    mask.style.display = 'flex';
+    pwInput.value = '';
+    pwInput.style.display = '';
+    errEl.textContent = '';
+    resultEl.style.display = 'none';
+    resultEl.innerHTML = '';
+    loadingEl.style.display = 'none';
+    okBtn.disabled = false;
+    okBtn.textContent = '开始同步';
+    okBtn.onclick = doSync;
+    cancelBtn.style.display = '';
+    cancelBtn.textContent = '取消';
+    setTimeout(function(){ pwInput.focus(); }, 50);
+  }
+  function closeSync(){ mask.style.display = 'none'; }
+
+  document.querySelectorAll('.sb-sync-btn').forEach(function(btn){
+    btn.addEventListener('click', function(e){
+      e.preventDefault();
+      if(location.hostname !== 'localhost' && location.hostname !== '127.0.0.1'){
+        alert('云端同步仅在本地版可用，请双击「双向同步.bat」或在本地版操作');
+        return;
+      }
+      openSync();
+    });
+  });
+
+  cancelBtn.addEventListener('click', closeSync);
+  mask.addEventListener('click', function(e){ if(e.target === mask) closeSync(); });
+
+  async function doSync(){
+    var pw = pwInput.value.trim();
+    if(!pw){ errEl.textContent = '请输入口令'; return; }
+    errEl.textContent = '';
+    pwInput.style.display = 'none';
+    loadingEl.style.display = 'block';
+    okBtn.disabled = true;
+    okBtn.textContent = '同步中...';
+    try{
+      var startTime = Date.now();
+      var res = await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+      });
+      var data = await res.json();
+      var elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
+      loadingEl.style.display = 'none';
+      if(data.ok){
+        resultEl.innerHTML = '<div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;padding:14px">' +
+          '<div style="color:#15803d;font-weight:700;font-size:15px;margin-bottom:8px;display:flex;align-items:center;gap:6px">' +
+          '<span style="display:inline-flex;width:20px;height:20px;background:#15803d;color:#fff;border-radius:50%;align-items:center;justify-content:center;font-size:12px">✓</span>' +
+          '同步成功</div>' +
+          '<div style="color:#166534;font-size:13px;line-height:2">' +
+          '<div style="display:flex;justify-content:space-between"><span>上传到云端</span><span style="font-weight:600">' + data.up + ' 个文件</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span>更新到本地</span><span style="font-weight:600">' + data.down + ' 个文件</span></div>' +
+          '<div style="display:flex;justify-content:space-between"><span>同步耗时</span><span>' + elapsed + ' 秒</span></div>' +
+          '</div></div>';
+        resultEl.style.display = 'block';
+        okBtn.textContent = '完成';
+        okBtn.disabled = false;
+        okBtn.onclick = closeSync;
+        cancelBtn.style.display = 'none';
+      } else {
+        resultEl.innerHTML = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px">' +
+          '<div style="color:#b91c1c;font-weight:700;font-size:15px;margin-bottom:6px">✗ 同步失败</div>' +
+          '<div style="color:#991b1b;font-size:13px">' + (data.error || '未知错误') + '</div></div>';
+        resultEl.style.display = 'block';
+        pwInput.style.display = '';
+        okBtn.disabled = false;
+        okBtn.textContent = '重试';
+      }
+    }catch(e){
+      loadingEl.style.display = 'none';
+      resultEl.innerHTML = '<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:10px;padding:14px">' +
+        '<div style="color:#b91c1c;font-weight:700;font-size:15px;margin-bottom:6px">✗ 网络错误</div>' +
+        '<div style="color:#991b1b;font-size:13px">' + e.message + '</div></div>';
+      resultEl.style.display = 'block';
+      pwInput.style.display = '';
+      okBtn.disabled = false;
+      okBtn.textContent = '重试';
+    }
+  }
+  okBtn.onclick = doSync;
+  pwInput.addEventListener('keydown', function(e){ if(e.key === 'Enter') doSync(); });
+})();
+</script>
 </body>
 </html>

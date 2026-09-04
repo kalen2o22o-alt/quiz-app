@@ -283,12 +283,43 @@
   function escapeHtml(s){
     return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   }
+  // 结构化表格元数据 -> 真合并单元格 <table>（rowspan/colspan 还原）
+  // t: {nrow,ncol,cells:[{r,c,rs,cs,text}]}；cells 只含实际逻辑格（覆盖占位不记录）
+  function mergeTableHtml(t){
+    if(!t || !t.nrow || !t.ncol || !Array.isArray(t.cells)) return null;
+    const grid = [];
+    for(let r = 0; r < t.nrow; r++) grid.push(new Array(t.ncol).fill(null));
+    for(let k = 0; k < t.cells.length; k++){
+      const c = t.cells[k];
+      if(c && c.r >= 0 && c.r < t.nrow && c.c >= 0 && c.c < t.ncol && grid[c.r][c.c] == null){
+        grid[c.r][c.c] = c;
+      }
+    }
+    const out = [];
+    for(let r = 0; r < t.nrow; r++){
+      let rowHtml = '';
+      let allPlainEmpty = true;   // 该行全为空文本普通格（无合并、无内容）时折叠，避免空洞
+      for(let c = 0; c < t.ncol; c++){
+        const cell = grid[r][c];
+        if(!cell) continue;       // 被上方/左方合并覆盖的占位：不输出 td，由 rowspan/colspan 撑开
+        const txt = String(cell.text == null ? '' : cell.text).replace(/\u00a0/g, ' ').trim();
+        const span = (cell.rs > 1 || cell.cs > 1);
+        if(txt || span) allPlainEmpty = false;
+        const attrs = (cell.rs > 1 ? ' rowspan="' + cell.rs + '"' : '') + (cell.cs > 1 ? ' colspan="' + cell.cs + '"' : '');
+        rowHtml += '<td' + attrs + '>' + (txt ? escapeHtml(txt) : '&nbsp;') + '</td>';
+      }
+      if(rowHtml && !allPlainEmpty) out.push('<tr>' + rowHtml + '</tr>');
+    }
+    return out.join('');
+  }
   // 富文本：换行 -> <br>；连续含制表符的行 -> 真实表格（首行作表头）
-  function fmtRich(s){
+  // tables（可选）：该文本中按出现顺序对应的结构化表格元数据，存在则渲染真合并单元格；否则回退 \t 等格网
+  function fmtRich(s, tables){
     if(s == null) return '';
     const esc = escapeHtml(String(s));
     const lines = esc.split('\n');
     const out = [];
+    const tq = (tables && Array.isArray(tables)) ? tables.slice() : null;
     let i = 0;
     const isBlank = l => l.replace(/\u00a0/g,' ').trim() === '';
     const hasTab = l => l.indexOf('\t') >= 0;
@@ -310,13 +341,17 @@
         }
         const tabRows = block.filter(hasTab);
         if(tabRows.length >= 2){
-          const rows = tabRows.map(r => r.split('\t').map(c => (c.replace(/\u00a0/g, ' ').trim() || '&nbsp;')));
-          const ncol = Math.max.apply(null, rows.map(r => r.length));
-          const html = rows.map((r, ri) => {
-            while(r.length < ncol) r.push('&nbsp;');
-            const tag = ri === 0 ? 'th' : 'td';
-            return '<tr>' + r.map(c => '<' + tag + '>' + c + '</' + tag + '>').join('') + '</tr>';
-          }).join('');
+          let html = null;
+          if(tq && tq.length) html = mergeTableHtml(tq.shift());
+          if(html == null){
+            const rows = tabRows.map(r => r.split('\t').map(c => (c.replace(/\u00a0/g, ' ').trim() || '&nbsp;')));
+            const ncol = Math.max.apply(null, rows.map(r => r.length));
+            html = rows.map((r, ri) => {
+              while(r.length < ncol) r.push('&nbsp;');
+              const tag = ri === 0 ? 'th' : 'td';
+              return '<tr>' + r.map(c => '<' + tag + '>' + c + '</' + tag + '>').join('') + '</tr>';
+            }).join('');
+          }
           out.push('<div class="q-tbl-wrap"><table class="q-tbl"><tbody>' + html + '</tbody></table></div>');
         } else {
           out.push('<span class="q-tbl">' + block[0] + '</span>');
@@ -566,12 +601,7 @@
   function getPaperQuestions(paperId){
     let paper = null;
     if(Array.isArray(APP.papers)) paper = APP.papers.find(p => p.id === paperId);
-    if(!paper && window.BANK_INTENSIVE){
-      const b = window.BANK_INTENSIVE;
-      const s = __bankSubj__();
-      const bank = (b[s] != null) ? b[s] : b;
-      paper = (bank || []).find(p => p.id === paperId);
-    }
+    if(!paper && Array.isArray(APP.intensivePapers)) paper = APP.intensivePapers.find(p => p.id === paperId);
     if(!paper) return [];
     const qs = (paper.questions || []).map((q, qi) => {
       const qhash = __qnHash__((q.stem || '') + '|' + JSON.stringify(q.options || {}));
@@ -870,7 +900,7 @@
     if(type === 'subjective'){
       if(ptype === 'calc') return '计算分析题';
       if(ptype === 'comp') return '综合题';
-      return '计算分析题 / 综合题';
+      return '主观题';
     }
     return type === 'single' ? '单项选择题' : type === 'multi' ? '多项选择题' : type === 'judge' ? '判断题' :
            type === 'analysis' ? '分析题' : type === 'comprehensive' ? '综合题' : type || '其他题型';
@@ -1665,7 +1695,7 @@
     }).join('');
     const wrongLabel = manualWrong ? '<span class="tag tag-orange" style="margin-left:8px">手动判错</span>' : '';
     const wrongCountTag = q.wrongCount ? '<span class="wq-src" style="margin-left:6px">错'+q.wrongCount+'次</span>' : '';
-    const analysisHtml = q.analysis ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body">'+fmtRich(q.analysis)+'</div></details>' : (q.tag ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>'+escapeHtml(q.tag)+'</p></div></details>' : '');
+    const analysisHtml = q.analysis ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body">'+fmtRich(q.analysis, q.tables)+'</div></details>' : (q.tag ? '<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>'+escapeHtml(q.tag)+'</p></div></details>' : '');
     const draftText = getDraft(uid);
     const draftHtml = '<details class="wq-exp wq-draft" open><summary><svg viewBox="0 0 24 24"><path d="M6 9l6 6 6-6"/></svg>作答草稿</summary><div class="body"><textarea class="wq-draft-ta" data-uid="'+escapeHtml(uid)+'" rows="3" placeholder="记录你的思考，保存后同步到做题页…">'+escapeHtml(draftText)+'</textarea><div class="wq-draft-actions"><button class="btn btn-sm btn-primary wq-draft-save" type="button">保存</button><span class="wq-draft-msg"></span></div></div></details>';
     return `
@@ -1932,8 +1962,9 @@
         </div>
         <p class="wq-stem">${fmtRich(q.stem)}</p>
         <ul class="wq-opts">${opts}</ul>
-        ${q.analysis ? `<details class="wq-exp"><summary>查看解析</summary><div class="exp-body"><p>${escapeHtml(q.analysis)}</p></div></details>` : ''}
+        ${q.analysis ? `<details class="wq-exp"><summary>查看解析</summary><div class="exp-body">${fmtRich(q.analysis, q.tables)}</div></details>` : ''}
         <div class="wq-act">
+          <button class="btn btn-ghost btn-sm" data-edit-uid="${escapeHtml(q.uid || q._uid)}" type="button">✎ 修改</button>
           <a class="btn btn-ghost btn-sm" href="题刷刷.html?chapter=${encodeURIComponent(q.chapter)}&section=${encodeURIComponent(q.section)}#practice">重做本题</a>
         </div>
       </article>
@@ -2013,6 +2044,13 @@
       });
     });
 
+    // ✎ 修改按钮：打开修改编辑器
+    list.querySelectorAll('[data-edit-uid]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        openErrorEditor(btn.getAttribute('data-edit-uid'));
+      });
+    });
+
     const cnt = document.getElementById('err-count');
     if(cnt) cnt.textContent = total;
     const from = total ? (start + 1) : 0;
@@ -2021,6 +2059,258 @@
     const toEl = document.getElementById('err-to');
     if(fromEl) fromEl.textContent = from;
     if(toEl) toEl.textContent = to;
+  }
+
+  // ============ 待纠错：修改题目 ============
+  let __errEditingUid__ = null;
+
+  // 定位题库中的题目对象：返回 { target, file }；target 为题库内题目对象引用，file 为写回文件名
+  function __locateBankQuestion__(uid, newContent){
+    if(!uid) return null;
+    if(uid.indexOf('paper:') === 0){
+      const m = uid.match(/^paper:(.+?)::([0-9a-f]{8})$/);
+      if(!m) return null;
+      const paperId = m[1];
+      let paper = null, file = 'papers.json';
+      if(Array.isArray(APP.papers)) paper = APP.papers.find(p => p.id === paperId);
+      if(!paper && Array.isArray(APP.intensivePapers)){
+        paper = APP.intensivePapers.find(p => p.id === paperId);
+        if(paper) file = 'intensive.json';
+      }
+      if(!paper) return null;
+      const qs = paper.questions || [];
+      const wantHash = m[2];
+      const newHash = (newContent && newContent.stem != null) ? __qnHash__((newContent.stem || '') + '|' + JSON.stringify(newContent.options || {})) : null;
+      for(let i = 0; i < qs.length; i++){
+        const qhash = __qnHash__((qs[i].stem || '') + '|' + JSON.stringify(qs[i].options || {}));
+        if(qhash === wantHash || (newHash && qhash === newHash)) return { target: qs[i], file: file };
+      }
+      return null;
+    }
+    const parts = uid.split('||');
+    if(parts.length === 3){
+      const ch = APP.chapters[parts[0]];
+      if(ch && ch.sections && ch.sections[parts[1]]){
+        const qi = parseInt(parts[2], 10);
+        const qs = ch.sections[parts[1]].questions || [];
+        if(qi >= 0 && qi < qs.length) return { target: qs[qi], file: 'chapters.json' };
+      }
+    }
+    return null;
+  }
+
+  // 把内存题库写回 data/<subj>/<file>.json
+  async function __writeBankFile__(file, subj){
+    let data = null;
+    if(file === 'chapters.json'){
+      data = {
+        subject: APP.subject || (subj || ''),
+        subjects: Array.isArray(APP.subjects) ? APP.subjects : [],
+        answerStatus: APP.answerStatus || [],
+        verifiedCount: APP.verifiedCount || 0,
+        chapters: APP.chapters || {}
+      };
+    } else if(file === 'papers.json'){
+      data = APP.papers;
+    } else if(file === 'intensive.json'){
+      data = APP.intensivePapers;
+    }
+    if(data == null) return false;
+    const url = '/api/data/' + (subj || getSubject()) + '/' + file;
+    const r = await fetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+    return r.ok;
+  }
+
+  // 同步刷新错题/收藏/待纠错中同 uid 的快照字段
+  function __refreshSnapshots__(uid, newQ, subj, newUid){
+    // 错题（wrong_list_<subj> 数组）
+    try{
+      const arr = getWrongList();
+      const it = (Array.isArray(arr) ? arr : []).find(x => (x.uid || x._uid) === uid);
+      if(it){
+        if(newUid) it.uid = newUid;
+        if(newQ.stem != null) it.stem = newQ.stem;
+        if(newQ.options != null) it.options = newQ.options;
+        if(newQ.answer != null) it.answer = newQ.answer;
+        if(newQ.analysis != null) it.analysis = newQ.analysis;
+        store.set('wrong_list_' + subj, JSON.stringify(arr));
+      }
+    }catch(e){}
+    // 收藏
+    try{
+      const fav = getFavorites();
+      const arr = [...fav.values()];
+      const it = arr.find(x => (x.uid || x._uid) === uid);
+      if(it){
+        if(newUid) it.uid = newUid;
+        if(newQ.stem != null) it.stem = newQ.stem;
+        if(newQ.options != null) it.options = newQ.options;
+        if(newQ.answer != null) it.answer = newQ.answer;
+        if(newQ.analysis != null) it.analysis = newQ.analysis;
+        const out = [...fav.values()];
+        store.set(globalFavoritesKey(), JSON.stringify(out));
+      }
+    }catch(e){}
+    // 待纠错
+    try{
+      const ec = getErrorCorrected();
+      const it = ec.get(uid);
+      if(it){
+        if(newUid) it.uid = newUid;
+        if(newQ.stem != null) it.stem = newQ.stem;
+        if(newQ.options != null) it.options = newQ.options;
+        if(newQ.answer != null) it.answer = newQ.answer;
+        if(newQ.analysis != null) it.analysis = newQ.analysis;
+        const out = [...ec.values()];
+        store.set(globalErrorCorrectedKey(), JSON.stringify(out));
+      }
+    }catch(e){}
+  }
+
+  function __optKeysByType__(type){
+    if(type === 'judge') return ['√','×'];
+    if(type === 'subjective' || type === 'calc' || type === 'comp') return [];
+    return ['A','B','C','D'];
+  }
+
+  function openErrorEditor(uid){
+    const ec = getErrorCorrected();
+    const item = ec.get(uid);
+    if(!item) return;
+    __errEditingUid__ = uid;
+    const mask = document.getElementById('err-editor');
+    if(!mask) return;
+    // 元信息
+    const meta = document.getElementById('err-editor-meta');
+    if(meta) meta.textContent = (getTypeLabel(item.type || item.raw_type) || '') + ' · ' + (item.chapter || '') + (item.section ? ' / ' + item.section : '');
+    // 题干
+    const stemEl = document.getElementById('err-edit-stem');
+    if(stemEl) stemEl.value = item.stem || '';
+    // 选项
+    const optsWrap = document.getElementById('err-edit-opts-wrap');
+    const optsEl = document.getElementById('err-edit-opts');
+    const optKeys = __optKeysByType__(item.type);
+    if(optsWrap && optsEl){
+      if(optKeys.length === 0){
+        optsWrap.style.display = 'none';
+      } else {
+        optsWrap.style.display = '';
+        optsEl.innerHTML = optKeys.map(k => {
+          const v = (item.options && item.options[k]) != null ? item.options[k] : '';
+          return '<div style="display:flex;align-items:center;gap:8px"><span style="width:18px;font-weight:600">' + k + '</span><input id="err-edit-opt-' + k + '" value="' + escapeHtml(String(v)) + '" style="flex:1" /></div>';
+        }).join('');
+      }
+    }
+    // 正确答案
+    const ansWrap = document.getElementById('err-edit-answer-wrap');
+    const ansEl = document.getElementById('err-edit-answer');
+    const ansLabel = document.getElementById('err-edit-answer-label');
+    if(ansWrap && ansEl){
+      const isSubj = (item.type === 'subjective' || item.type === 'calc' || item.type === 'comp');
+      if(isSubj){
+        ansWrap.style.display = 'none';
+      } else {
+        ansWrap.style.display = '';
+        ansEl.value = item.answer || '';
+        if(ansLabel) ansLabel.textContent = (item.type === 'judge') ? '正确答案（√ 或 ×）' : '正确答案（单选填字母；多选用逗号分隔）';
+      }
+    }
+    // 解析
+    const anaEl = document.getElementById('err-edit-analysis');
+    if(anaEl) anaEl.value = item.analysis || '';
+    // 状态
+    const st = document.getElementById('err-edit-status');
+    if(st) st.textContent = '';
+    // 预览
+    updateErrPreview();
+    // 按钮绑定（覆盖式 onclick，避免重复绑定）
+    const cancelBtn = document.getElementById('btn-err-edit-cancel');
+    if(cancelBtn) cancelBtn.onclick = closeErrorEditor;
+    const saveBtn = document.getElementById('btn-err-edit-save');
+    if(saveBtn) saveBtn.onclick = saveErrorEditor;
+    const stemInput = document.getElementById('err-edit-stem');
+    if(stemInput) stemInput.oninput = updateErrPreview;
+    // 点击遮罩（非弹窗内部）关闭；每次打开重新绑定避免重复
+    mask.onclick = (ev) => {
+      if(ev.target === mask) closeErrorEditor();
+    };
+    mask.style.display = 'flex';
+  }
+
+  function closeErrorEditor(){
+    const mask = document.getElementById('err-editor');
+    if(mask) mask.style.display = 'none';
+    __errEditingUid__ = null;
+  }
+
+  function updateErrPreview(){
+    const stemEl = document.getElementById('err-edit-stem');
+    const pv = document.getElementById('err-edit-preview');
+    if(stemEl && pv) pv.innerHTML = fmtRich(stemEl.value || '');
+  }
+
+  async function saveErrorEditor(){
+    const uid = __errEditingUid__;
+    if(!uid){ return; }
+    const st = document.getElementById('err-edit-status');
+    const ec = getErrorCorrected();
+    const item = ec.get(uid);
+    if(!item){ closeErrorEditor(); return; }
+    // 组装新题数据
+    const newQ = { stem: '', options: null, answer: '', analysis: '' };
+    const stemEl = document.getElementById('err-edit-stem');
+    if(stemEl) newQ.stem = stemEl.value;
+    const optKeys = __optKeysByType__(item.type);
+    if(optKeys.length > 0){
+      const opts = {};
+      optKeys.forEach(k => {
+        const el = document.getElementById('err-edit-opt-' + k);
+        opts[k] = el ? el.value : '';
+      });
+      newQ.options = opts;
+    }
+    const ansEl = document.getElementById('err-edit-answer');
+    if(ansEl && (item.type !== 'subjective' && item.type !== 'calc' && item.type !== 'comp')) newQ.answer = ansEl.value.trim();
+    const anaEl = document.getElementById('err-edit-analysis');
+    if(anaEl) newQ.analysis = anaEl.value;
+    if(!newQ.stem.trim()){ if(st) st.textContent = '题干不能为空'; return; }
+
+    const subj = getSubject();
+    // 1) 定位题库原题并更新
+    const loc = __locateBankQuestion__(uid, newQ);
+    let bankOk = true;
+    if(loc && loc.target){
+      if(newQ.stem != null) loc.target.stem = newQ.stem;
+      if(newQ.options != null) loc.target.options = newQ.options;
+      if(newQ.answer != null) loc.target.answer = newQ.answer;
+      if(newQ.analysis != null) loc.target.analysis = newQ.analysis;
+      try{
+        bankOk = await __writeBankFile__(loc.file, subj);
+      }catch(e){ bankOk = false; }
+    } else {
+      bankOk = false;
+    }
+    // 2) 同步刷新快照（错题/收藏/待纠错）
+    // 计算新 uid：套卷题 hash 随内容更新，保留 paperId 身份
+    let newUid = null;
+    if(uid && uid.indexOf('paper:') === 0){
+      const mm = uid.match(/^paper:(.+?)::[0-9a-f]{8}$/);
+      if(mm){
+        const nh = __qnHash__((newQ.stem || '') + '|' + JSON.stringify(newQ.options || {}));
+        newUid = 'paper:' + mm[1] + '::' + nh;
+      }
+    }
+    __refreshSnapshots__(uid, newQ, subj, newUid);
+    if(newUid) __errEditingUid__ = newUid;
+    // 3) 提示
+    if(st){
+      if(loc && loc.target && bankOk) st.textContent = '已保存，题库已更新';
+      else if(loc && loc.target && !bankOk) st.textContent = '题库写回失败（服务器可能未启动），本地快照已更新';
+      else st.textContent = '未能定位题库原题（仅更新本地快照）';
+      st.style.color = (loc && loc.target && bankOk) ? 'var(--color-success-text,#22C55E)' : 'var(--color-danger-text,#C03B2B)';
+    }
+    // 4) 延迟关闭并刷新列表
+    setTimeout(() => { closeErrorEditor(); renderErrorCorrected(); }, 900);
   }
 
   // ============ 学习笔记（记录知识点 + 卡片抽查） ============
@@ -2036,6 +2326,7 @@
     try{ store.set(notesKey(), JSON.stringify(obj)); }catch(e){}
   }
   let noteFilter = 'all';
+  let noteTagQuery = '';
   let quizState = null;
 
   function noteCrumbName(){
@@ -2050,7 +2341,9 @@
     if(!root || !root.querySelector('#note-list')) return;
     setText('note-crumb', noteCrumbName());
     const notes = getNotes().list.slice().sort((a,b)=> (b.updatedAt||0)-(a.updatedAt||0));
-    const shown = noteFilter === 'review' ? notes.filter(n=>!n.mastered) : notes;
+    let shown = noteFilter === 'review' ? notes.filter(n=>!n.mastered) : notes.slice();
+    const tagQ = (noteTagQuery || '').trim().toLowerCase();
+    if(tagQ) shown = shown.filter(n => (n.tags || []).some(t => String(t).toLowerCase().includes(tagQ)));
     const cntEl = document.getElementById('note-count');
     if(cntEl) cntEl.innerHTML = '共 <b>' + notes.length + '</b> 条 · <b style="color:var(--color-danger-text)">' + notes.filter(n=>!n.mastered).length + '</b> 待复习';
     const sumEl = document.getElementById('note-summary');
@@ -2059,7 +2352,8 @@
     if(seg) seg.querySelectorAll('button').forEach(b => b.classList.toggle('on', b.getAttribute('data-filter') === noteFilter));
     const list = document.getElementById('note-list');
     if(!shown.length){
-      list.innerHTML = '<div class="note-empty"><div class="ne-ico"><svg viewBox="0 0 24 24"><path d="M4.4 19.6h4L18.2 9.8l-4-4L4.4 15.6z"/><path d="M14.2 5.8 18.2 9.8"/></svg></div><p>' + (noteFilter==='review' ? '太棒了，当前没有待复习的笔记' : '还没有笔记。<br>把易错点、公式、关键结论记下来，之后转成卡片抽查。') + '</p>' + (noteFilter!=='review' ? '<button class="btn btn-primary" id="btn-note-add-inline" type="button">＋ 写第一条笔记</button>' : '') + '</div>';
+      const emptyMsg = tagQ ? '没有找到标签包含「' + escapeHtml(noteTagQuery.trim()) + '」的笔记' : (noteFilter==='review' ? '太棒了，当前没有待复习的笔记' : '还没有笔记。<br>把易错点、公式、关键结论记下来，之后转成卡片抽查。');
+      list.innerHTML = '<div class="note-empty"><div class="ne-ico"><svg viewBox="0 0 24 24"><path d="M4.4 19.6h4L18.2 9.8l-4-4L4.4 15.6z"/><path d="M14.2 5.8 18.2 9.8"/></svg></div><p>' + emptyMsg + '</p>' + (!tagQ && noteFilter!=='review' ? '<button class="btn btn-primary" id="btn-note-add-inline" type="button">＋ 写第一条笔记</button>' : '') + '</div>';
       const inline = list.querySelector('#btn-note-add-inline');
       if(inline) inline.addEventListener('click', () => openNoteEditor());
       return;
@@ -2071,9 +2365,11 @@
       const badge = n.mastered
         ? '<span class="nc-badge done">已掌握</span>'
         : '<span class="nc-badge review">待复习</span>';
+      const tagsHtml = (n.tags && n.tags.length) ? '<div class="nc-tags">' + n.tags.map(t => '<span class="nc-tag">' + escapeHtml(t) + '</span>').join('') + '</div>' : '';
       return '<div class="note-card' + (n.mastered?' is-mastered':'') + '" data-id="' + n.id + '">' +
         '<div class="nc-top">' + badge + (n.reviewCount ? '<span class="nc-badge">抽查 ' + n.reviewCount + ' 次</span>' : '') + '</div>' +
         '<h4>' + escapeHtml(n.title||'未命名知识点') + '</h4>' +
+        tagsHtml +
         '<div class="nc-body">' + escapeHtml(brief) + '</div>' +
         '<div class="nc-foot">' +
           '<span class="nc-time">更新于 ' + timestr + '</span>' +
@@ -2099,6 +2395,7 @@
     mask._editingId = editing ? editing.id : null;
     document.getElementById('note-editor-title').textContent = editing ? '编辑笔记' : '新建笔记';
     document.getElementById('note-title').value = editing ? (editing.title||'') : '';
+    document.getElementById('note-tag').value = editing ? ((editing.tags||[]).join(', ')) : '';
     document.getElementById('note-content').value = editing ? (editing.content||'') : '';
     mask.style.display = 'flex';
     document.getElementById('note-title').focus();
@@ -2111,15 +2408,17 @@
     const mask = document.getElementById('note-editor');
     if(!mask) return;
     const title = document.getElementById('note-title').value.trim();
+    const tagRaw = document.getElementById('note-tag').value || '';
+    const tags = tagRaw.split(/[,，、\s]+/).map(s=>s.trim()).filter(Boolean).slice(0,8);
     const content = document.getElementById('note-content').value.replace(/\r\n/g,'\n');
     if(!title && !content){ closeNoteEditor(); return; }
     const obj = getNotes();
     const now = Date.now();
     if(mask._editingId){
       const n = obj.list.find(x => x.id === mask._editingId);
-      if(n){ n.title = title; n.content = content; n.updatedAt = now; }
+      if(n){ n.title = title; n.tags = tags; n.content = content; n.updatedAt = now; }
     } else {
-      obj.list.push({ id: 'n_' + now + '_' + Math.random().toString(36).slice(2,7), title: title || '未命名知识点', content: content, createdAt: now, updatedAt: now, mastered: 0, reviewCount: 0, lastReview: null });
+      obj.list.push({ id: 'n_' + now + '_' + Math.random().toString(36).slice(2,7), title: title || '未命名知识点', tags: tags, content: content, createdAt: now, updatedAt: now, mastered: 0, reviewCount: 0, lastReview: null });
     }
     saveNotes(obj);
     closeNoteEditor();
@@ -2155,9 +2454,12 @@
   function startNoteQuiz(scope){
     const notes = getNotes().list.slice();
     let pool = (scope === 'review') ? notes.filter(n => !n.mastered) : notes.slice();
+    // 遵循标签筛选：列表页标签搜索框有内容时，抽查池限定为匹配标签的笔记
+    const tagQ = (noteTagQuery || '').trim().toLowerCase();
+    if(tagQ) pool = pool.filter(n => (n.tags || []).some(t => String(t).toLowerCase().includes(tagQ)));
+    if(!pool.length){ const m = document.getElementById('note-quiz'); if(m) m.style.display = 'none'; return; }
     pool = shuffleList(pool);
-    if(!pool.length) return;
-    quizState = { pool, idx: 0, scope: scope || 'all', flipped: false, noFlip: false, done: 0, won: 0, lost: 0, total: pool.length };
+    quizState = { pool, idx: 0, scope: scope || 'all', tagQ, flipped: false, noFlip: false, done: 0, won: 0, lost: 0, total: pool.length };
     buildQuizInner();
     const mask = document.getElementById('note-quiz');
     mask.style.display = 'flex';
@@ -2173,7 +2475,8 @@
     document.getElementById('quiz-q').textContent = n.title || '未命名知识点';
     document.getElementById('quiz-a').innerHTML = fmtRich(n.content || '—');
     document.getElementById('quiz-progress').textContent = (s.idx + 1) + ' / ' + s.total;
-    document.getElementById('quiz-mode').textContent = (s.scope === 'review' ? '仅待复习 · 已记 ' : '全部 · 已记 ') + s.won + ' · 待复 ' + s.lost;
+    const tagTxt = (s.tagQ && s.tagQ.length) ? ('标签「' + s.tagQ + '」 · ') : '';
+    document.getElementById('quiz-mode').textContent = tagTxt + (s.scope === 'review' ? '仅待复习 · 已记 ' : '全部 · 已记 ') + s.won + ' · 待复 ' + s.lost;
   }
   function flipNoteCard(){
     const s = quizState;
@@ -2192,6 +2495,7 @@
     const s = quizState;
     if(!s) return;
     if(s.idx > 0){ s.idx--; setQuizCard(); }
+    else if(s.pool.length > 1){ s.idx = s.pool.length - 1; setQuizCard(); }
   }
   function quizMark(mastered){
     const s = quizState;
@@ -2249,6 +2553,14 @@
   }
 
   function initNotesUI(){
+    // 标签搜索框：事件委托（模板延迟渲染，须在 document 级监听）
+    document.addEventListener('input', e => {
+      const t = e.target;
+      if(t && t.id === 'note-tag-search'){
+        noteTagQuery = t.value;
+        renderNotes();
+      }
+    });
     document.addEventListener('click', e => {
       const t = e.target;
       if(t.closest && t.closest('#btn-note-add')){ openNoteEditor(); return; }
@@ -2257,6 +2569,7 @@
       if(t.closest && t.closest('#btn-note-quiz')){ startNoteQuiz(noteFilter); return; }
       if(t.closest && t.closest('#btn-quiz-close')){ closeNoteQuiz(); return; }
       if(t.closest && t.closest('#btn-quiz-prev')){ quizPrev(); return; }
+      if(t.closest && t.closest('#btn-quiz-next')){ quizNext(); return; }
       if(t.closest && t.closest('#btn-quiz-shuffle')){ quizShuffleCurrent(); return; }
       if(t.closest && t.closest('#btn-quiz-wrong')){ quizMark(false); return; }
       if(t.closest && t.closest('#btn-quiz-right')){ quizMark(true); return; }
@@ -2440,9 +2753,7 @@
       // 运行时动态获取当前科目的题库
       let paperBank;
       if(isIntensive){
-        const b = window.BANK_INTENSIVE;
-        const s = __bankSubj__();
-        paperBank = b ? ((b[s] != null) ? b[s] : b) : [];
+        paperBank = (APP.intensivePapers || []);
       } else {
         paperBank = (APP.papers || []);
       }
@@ -2652,9 +2963,7 @@
     // 运行时动态获取当前科目的题库（切换科目后实时生效）
     let papers;
     if(isIntensive){
-      const b = window.BANK_INTENSIVE;
-      const s = __bankSubj__();
-      papers = b ? ((b[s] != null) ? b[s] : b) : [];
+      papers = (APP.intensivePapers || []);
     } else {
       papers = (APP.papers || []);
     }
@@ -3044,7 +3353,7 @@
       }
       return;
     }
-    // 判断题：自动生成 √/× 选项（不依赖 options 字段，与本地版一致）
+        // 判断题：自动生成 √/× 选项（不依赖 options 字段）
     const optSrc = q.type === 'judge' ? { '√': '正确', '×': '错误' } : (q.options || {});
     optsEl.innerHTML = Object.entries(optSrc).map(([k, v]) => {
       const cls = ['opt'];
@@ -3213,7 +3522,7 @@
         (q.analysis ?
           '<div class="ans-sec analysis-sec">' +
             '<div class="ans-sec-h">解析</div>' +
-            '<div class="ans-sec-v">' + fmtRich(q.analysis) + '</div>' +
+            '<div class="ans-sec-v">' + fmtRich(q.analysis, q.tables) + '</div>' +
           '</div>' : '') +
       '</div>' +
       extraHtml;
@@ -4156,8 +4465,17 @@
   }
 
   // ============ 练习历史「查看解析」题目流（与章节训练一致，只读不可作答） ============
+  function shortTypeLabel(q){
+    // 精确区分题型：主观题按 ptype 拆分为计算分析题 / 综合题，不再统称
+    const ptype = q.ptype || q.type;
+    if(q.type === 'subjective' || ptype === 'calc' || ptype === 'comp'){
+      if(ptype === 'calc') return '计算分析题';
+      if(ptype === 'comp') return '综合题';
+    }
+    return { single: '单选', multi: '多选', judge: '判断', subjective: '主观题' }[q.type] || (ptype === 'calc' ? '计算分析题' : ptype === 'comp' ? '综合题' : '题');
+  }
   function renderHistoryFlow(s, qs){
-    const typeLabel = { single: '单选', multi: '多选', judge: '判断', subjective: '计算分析题 / 综合题' };
+    const typeLabel = { single: '单选', multi: '多选', judge: '判断', calc: '计算分析题', comp: '综合题' };
     const list = qs.filter(q => q._uid && s.answers && s.answers[q._uid]);
     if(!list.length) return '<div class="hist-flow-sum" style="margin-bottom:0">本次作答暂无可校验题目</div>';
     let html = '';
@@ -4199,13 +4517,13 @@
       let stem = (q.stem || '').replace(/^\s*\d+\s*[、.]\s*/, '');
       html += '<article class="q-card hist-q">' +
         '<div class="q-head"><span class="q-no">' + qNo(q, n - 1) + '</span>' +
-          '<span class="tag tag-gray">' + (typeLabel[q.type] || '题') + '</span>' +
+          '<span class="tag tag-gray">' + shortTypeLabel(q) + '</span>' +
           (ans ? '<span class="meta">你的答案 <b>' + escapeHtml(ans) + '</b></span>' : '<span class="meta">未作答</span>') +
         '</div>' +
         '<div class="stem">' + fmtRich(stem) + '</div>' +
         '<div class="opts">' + optsHtml + '</div>' +
         verdictHtml +
-        (q.analysis ? '<div class="exp">' + fmtRich(q.analysis) + '</div>' : '') +
+        (q.analysis ? '<div class="exp">' + fmtRich(q.analysis, q.tables) + '</div>' : '') +
       '</article>';
     });
     return html;
@@ -4500,7 +4818,7 @@
       return ai - bi;
     });
 
-    const typeLabel = { single: '单选', multi: '多选', judge: '判断', subjective: '计算分析题 / 综合题' };
+    const typeLabel = { single: '单选', multi: '多选', judge: '判断', calc: '计算分析题', comp: '综合题', subjective: '主观题' };
     let answered = 0, correct = 0, wrong = 0, pending = 0, objCorrect = 0, undone = 0;
     let flowHtml = '';
 
@@ -4523,8 +4841,8 @@
         undone++;
       }
 
-      // 分组
-      const t = q.type || 'single';
+      // 分组：客观题按 type，主观题按 ptype 精确区分计算分析题/综合题
+      const t = (q.type === 'subjective') ? (q.ptype || 'subjective') : (q.type || 'single');
       if(t !== curType){ curType = t; curGroup = { type: t, items: [] }; groups.push(curGroup); }
       curGroup.items.push({ n, state });
 
@@ -4562,13 +4880,13 @@
       let stem = (q.stem || '').replace(/^\s*\d+\s*[、.]\s*/, '');
       flowHtml += '<article class="q-card hist-q" id="q-idx-' + n + '">' +
         '<div class="q-head"><span class="q-no">' + qNo(q, n - 1) + '</span>' +
-          '<span class="tag tag-gray">' + (typeLabel[q.type] || '题') + '</span>' +
+          '<span class="tag tag-gray">' + shortTypeLabel(q) + '</span>' +
           (ans ? '<span class="meta">你的答案 <b>' + escapeHtml(ans) + '</b></span>' : '<span class="meta">未作答</span>') +
         '</div>' +
         '<div class="stem">' + fmtRich(stem) + '</div>' +
         '<div class="opts locked">' + optsHtml + '</div>' +
         verdictHtml +
-        (q.analysis ? '<div class="exp">' + fmtRich(q.analysis) + '</div>' : '') +
+        (q.analysis ? '<div class="exp">' + fmtRich(q.analysis, q.tables) + '</div>' : '') +
       '</article>';
     });
 
@@ -4601,7 +4919,7 @@
     document.getElementById('right-no').textContent = wrong;
 
     // 答题卡
-    const typeNames = { single: '单项选择题', multi: '多项选择题', judge: '判断题', subjective: '计算分析题 / 综合题' };
+    const typeNames = { single: '单项选择题', multi: '多项选择题', judge: '判断题', calc: '计算分析题', comp: '综合题', subjective: '主观题' };
     let sheetHtml = '';
     groups.forEach(g => {
       sheetHtml += '<div class="sheet-group"><div class="sheet-group-h">' + (typeNames[g.type] || '题目') + '<span>' + g.items.length + ' 题</span></div><div class="sheet">' +
