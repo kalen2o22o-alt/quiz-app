@@ -2954,21 +2954,6 @@
   // 冲刺模考·选套卷：从内联 APP.chapters 的「历年真题」「全真模拟」两章读取套卷列表
   // 冲刺模考·选套卷：从内联 APP.papers 读取套卷（历年真题 past / 全真模拟 sim），点选后整卷进入做题
   function renderPaperSelector(){
-    // 套卷名称序号解析：从「（一）/（二）/1/2」提取数字用于排序（补充试卷后自动正确排序）
-    function paperSortKey(name){
-      const m = String(name || '').match(/[（(]([一二三四五六七八九十百千\d]+)[）)]/);
-      if(!m) return 9999;
-      const s = m[1];
-      if(/^\d+$/.test(s)) return parseInt(s, 10);
-      const cn = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
-      if(s.length === 1) return cn[s] || 9999;
-      if(s.length === 2){
-        if(s[0] === '十') return 10 + (cn[s[1]] || 0);
-        if(s[1] === '十') return (cn[s[0]] || 0) * 10;
-      }
-      if(s.length === 3 && s[1] === '十') return (cn[s[0]] || 0) * 10 + (cn[s[2]] || 0);
-      return 9999;
-    }
     const card = document.querySelector('.q-card');
     if(!card) return;
     // 根据URL参数module决定使用哪个题库
@@ -2988,7 +2973,7 @@
     const moduleParam = isIntensive ? '&module=intensive' : '';
     let html = '<div style="max-width:900px;margin:0 auto;padding:10px 4px">';
     for(const [mode, label] of groups){
-      const list = papers.filter(p => p.mode === mode).sort((a, b) => paperSortKey(a.name) - paperSortKey(b.name));
+      const list = papers.filter(p => p.mode === mode);
       if(!list.length) continue;
       html += '<div class="paper-group" data-mode="' + mode + '">';
       html += '<div class="paper-group-h"><span class="arrow"></span>' + label + '（' + list.length + ' 套）</div>';
