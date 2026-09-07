@@ -1467,6 +1467,29 @@
     if(summary) summary.textContent = `共 ${Object.keys(APP.chapters || {}).length} 章 · ${totalSections} 关 · ${totalQuestions} 题`;
     const tbar = document.getElementById('toolbar-count');
     if(tbar) tbar.innerHTML = `共 <b>${Object.keys(APP.chapters || {}).length}</b> 章 · <b>${totalQuestions}</b> 题`;
+    // 清空章节训练按钮（删除整个科目的所有章节数据）
+    let clearBtn = document.getElementById('btn-clear-chapters');
+    if(!clearBtn && tbar){
+      clearBtn = document.createElement('button');
+      clearBtn.id = 'btn-clear-chapters';
+      clearBtn.type = 'button';
+      clearBtn.textContent = '清空章节训练';
+      clearBtn.style.cssText = 'margin-left:12px;padding:5px 12px;border:1px solid #DC2626;border-radius:8px;background:#FEF2F2;color:#DC2626;font-size:12px;cursor:pointer;font-weight:600';
+      clearBtn.title = '删除当前科目的所有章节训练数据（不可恢复，原文件自动备份）';
+      clearBtn.addEventListener('click', () => deleteChapter(null, null));
+      tbar.appendChild(clearBtn);
+    }
+
+    // 绑定章节/小节删除按钮（事件委托，动态渲染也生效）
+    list.querySelectorAll('.ch-del-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        const ch = btn.getAttribute('data-chapter');
+        const sec = btn.getAttribute('data-section');
+        deleteChapter(ch, sec);
+      });
+    });
 
     // 绑定分段筛选：点击后切换 chapterFilterState 并真实重渲染（不再只是改样式）
     const seg = document.getElementById('ch-seg');
@@ -2982,23 +3005,42 @@
     } else {
       papers = (APP.papers || []);
     }
-    // 中级会计实务强化训练显示特定名称
-    const intensiveLabel = (getSubject() === 'mid-practice') ? '2026年中级实务-正保550题' : '强化训练';
-    const groups = isIntensive ? [['intensive', intensiveLabel]] : [['past', '历年真题'], ['sim', '全真模拟']];
     const moduleParam = isIntensive ? '&module=intensive' : '';
+    // 分组：强化训练按套卷的 groupName 字段分组（支持自定义分组名称），冲刺模拟按 mode 分组
+    let groupList;
+    if(isIntensive){
+      const groupMap = {};
+      papers.forEach(p => {
+        const gn = p.groupName || '强化训练';
+        if(!groupMap[gn]) groupMap[gn] = [];
+        groupMap[gn].push(p);
+      });
+      groupList = Object.entries(groupMap).map(([label, list]) => ({
+        label,
+        list: list.sort((a, b) => paperSortKey(a.name) - paperSortKey(b.name))
+      }));
+    } else {
+      groupList = [
+        { label: '历年真题', list: papers.filter(p => p.mode === 'past').sort((a,b) => paperSortKey(a.name) - paperSortKey(b.name)) },
+        { label: '全真模拟', list: papers.filter(p => p.mode === 'sim').sort((a,b) => paperSortKey(a.name) - paperSortKey(b.name)) },
+      ];
+    }
     let html = '<div style="max-width:900px;margin:0 auto;padding:10px 4px">';
-    for(const [mode, label] of groups){
-      const list = papers.filter(p => p.mode === mode).sort((a, b) => paperSortKey(a.name) - paperSortKey(b.name));
+    for(const g of groupList){
+      const list = g.list;
       if(!list.length) continue;
-      html += '<div class="paper-group" data-mode="' + mode + '">';
-      html += '<div class="paper-group-h"><span class="arrow"></span>' + label + '（' + list.length + ' 套）</div>';
+      html += '<div class="paper-group" data-mode="' + (isIntensive ? 'intensive' : g.label) + '">';
+      html += '<div class="paper-group-h"><span class="arrow"></span>' + g.label + '（' + list.length + ' 套）</div>';
       html += '<div class="paper-group-body">';
       for(const p of list){
         const n = (p.questions || []).length;
         const href = '题刷刷.html?mode=paper&paperId=' + encodeURIComponent(p.id) + moduleParam + '#practice';
         html += '<a href="' + href + '" class="paper-item" style="display:flex;align-items:center;justify-content:space-between;gap:10px;padding:13px 15px;border:1px solid var(--color-border);border-radius:11px;text-decoration:none;color:var(--color-text-primary);background:var(--color-surface);transition:.15s" onmouseover="this.style.borderColor=\'var(--color-primary)\'" onmouseout="this.style.borderColor=\'var(--color-border)\'">'
               + '<span style="font-size:13px;line-height:1.45">' + escapeHtml(p.name) + '</span>'
-              + '<span style="flex:0 0 auto;font-size:12px;color:var(--color-text-secondary);background:var(--color-surface-muted);border-radius:20px;padding:3px 10px">' + n + ' 题</span></a>';
+              + '<span style="display:flex;align-items:center;gap:8px;flex:0 0 auto">'
+              + '<span style="font-size:12px;color:var(--color-text-secondary);background:var(--color-surface-muted);border-radius:20px;padding:3px 10px">' + n + ' 题</span>'
+              + '<button type="button" class="paper-del-btn" data-id="' + p.id + '" data-name="' + escapeHtml(p.name).replace(/"/g, '&quot;') + '" style="width:22px;height:22px;border:none;border-radius:50%;background:transparent;color:#94A3B8;font-size:16px;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0" onmouseover="this.style.color=\'#DC2626\';this.style.background=\'#FEE2E2\'" onmouseout="this.style.color=\'#94A3B8\';this.style.background=\'transparent\'" title="删除此套卷">&times;</button>'
+              + '</span></a>';
       }
       html += '</div></div>';
     }
@@ -3012,6 +3054,14 @@
       h.addEventListener('click', () => {
         const g = h.closest('.paper-group');
         if(g) g.classList.toggle('collapsed');
+      });
+    });
+    // 套卷删除按钮事件（委托，防止动态渲染后失效）
+    card.querySelectorAll('.paper-del-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        deletePaper(btn.getAttribute('data-id'), btn.getAttribute('data-name'));
       });
     });
     const tb = document.getElementById('tb-title');
@@ -3098,6 +3148,66 @@
     });
   }catch(e){}
 }
+
+
+  // 删除套卷（冲刺模拟/强化训练）
+  function deletePaper(paperId, paperName) {
+    if (!paperId) return;
+    if (!confirm('确定删除套卷「' + (paperName || paperId) + '」吗？\n删除后不可恢复（原文件已自动备份）。')) return;
+    const isIntensive = new URLSearchParams(location.search).get('module') === 'intensive';
+    const bankType = isIntensive ? 'intensive' : 'papers';
+    fetch('/api/delete-bank', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ bankType, subject: getSubject(), id: paperId }),
+    }).then(r => r.json()).then(r => {
+      if (r.ok) {
+        // 同步更新内存中的题库（避免重渲染时仍显示已删除的套卷）
+        const papersArr = isIntensive ? (APP.intensivePapers || []) : (APP.papers || []);
+        const idx = papersArr.findIndex(p => p.id === paperId);
+        if (idx >= 0) papersArr.splice(idx, 1);
+        alert('删除成功！\n备份文件：' + ((r.backup || '').split(/[\\\/]/).pop() || '—'));
+        renderPaperSelector();
+      } else {
+        alert('删除失败：' + (r.error || '未知错误'));
+      }
+    }).catch(e => alert('删除请求失败：' + (e.message || e)));
+  }
+
+  // 删除章节或小节（章节训练）
+  function deleteChapter(chapterName, sectionName) {
+    const isClearAll = !chapterName;
+    const isSection = !!sectionName;
+    const label = isClearAll ? '当前科目【' + (subjectLabel() || getSubject()) + '】的所有章节训练数据' : (isSection ? ('小节「' + chapterName + ' / ' + sectionName + '」') : ('章节「' + chapterName + '」（含所有小节）'));
+    if (!confirm('确定删除' + label + '吗？\n删除后不可恢复（原文件已自动备份）。')) return;
+    const body = { bankType: 'chapters', subject: getSubject(), id: chapterName || '__ALL__' };
+    if (sectionName) body.section = sectionName;
+    fetch('/api/delete-bank', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }).then(r => r.json()).then(r => {
+      if (r.ok) {
+        // 同步更新内存中的 APP.chapters
+        if (isClearAll) {
+          APP.chapters = {};
+        } else if (APP.chapters && APP.chapters[chapterName]) {
+          if (sectionName && APP.chapters[chapterName].sections) {
+            delete APP.chapters[chapterName].sections[sectionName];
+            if (Object.keys(APP.chapters[chapterName].sections || {}).length === 0) {
+              delete APP.chapters[chapterName];
+            }
+          } else {
+            delete APP.chapters[chapterName];
+          }
+        }
+        alert('删除成功！\n备份文件：' + ((r.backup || '').split(/[\\/]/).pop() || '—'));
+        renderChapters();
+      } else {
+        alert('删除失败：' + (r.error || '未知错误'));
+      }
+    }).catch(e => alert('删除请求失败：' + (e.message || e)));
+  }
 
   function renderInfoCard(){
     setText('info-chapter', practiceChapter || '—');
@@ -4285,7 +4395,25 @@
         showCloudStatus('云端连接失败：' + String(msg) + '（本次改用本地记录）');
       }
     }
-    if(!__SERVER_MODE__) return;
+    if(!__SERVER_MODE__){
+      // 云端题库（KV）：导入/删除功能依赖；有 KV 题库则覆盖静态兜底（bank_*.js），无则保持静态
+      // 本地版 __SERVER_MODE__=true 不执行此分支（走下方 data/ 文件加载）
+      try{
+        const subj = getSubject();
+        const [cd, pp, ip] = await Promise.all([
+          fetch('/api/data/' + subj + '/chapters.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/data/' + subj + '/papers.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+          fetch('/api/data/' + subj + '/intensive.json', { cache:'no-store' }).then(r => r.ok ? r.json() : null).catch(() => null),
+        ]);
+        if(cd && typeof cd === 'object'){
+          const ch = (cd.chapters && typeof cd.chapters === 'object') ? cd.chapters : cd;
+          if(ch && typeof ch === 'object' && !Array.isArray(ch)) APP.chapters = ch;
+        }
+        if(pp && Array.isArray(pp)){ APP.papers = pp; }
+        if(ip && Array.isArray(ip)){ APP.intensivePapers = ip; }
+      }catch(e){ /* KV 题库不可用时保持静态兜底 */ }
+      return;
+    }
     try{
       const subj = getSubject();
       // 0) 科目列表（/api/meta 动态给出 hasData，切科目时刷新）
@@ -4440,9 +4568,14 @@
     wrap.id = 'sb-backup';
     wrap.style.cssText = 'padding:10px 16px 12px;border-top:1px solid var(--color-border,#E6E8EB);display:flex;gap:8px;flex-wrap:wrap';
     wrap.innerHTML =
-      '<button id="btn-hist-save" type="button" title="把学习记录（练习历史/收藏/错题等）导出为 history.js，放入本文件夹即自动恢复" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid var(--color-border,#E6E8EB);border-radius:8px;background:var(--color-surface,#fff);color:var(--color-text-secondary,#475569);font-size:12px;cursor:pointer">保存记录</button>' +
-      '<button id="btn-hist-load" type="button" title="从 history.js / 备份 JSON 导入恢复学习记录" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid var(--color-border,#E6E8EB);border-radius:8px;background:var(--color-surface,#fff);color:var(--color-text-secondary,#475569);font-size:12px;cursor:pointer">导入记录</button>' +
-      '<button id="btn-wrong-export" type="button" title="把当前错题导出为独立快照 JSON（一次性，不实时同步）" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid var(--color-border,#E6E8EB);border-radius:8px;background:var(--color-surface,#fff);color:var(--color-text-secondary,#475569);font-size:12px;cursor:pointer">导出错题</button>';
+      '<div style="display:flex;gap:8px;width:100%">' +
+        '<button id="btn-hist-save" type="button" title="把学习记录（练习历史/收藏/错题等）导出为 history.js，放入本文件夹即自动恢复" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid var(--color-border,#E6E8EB);border-radius:8px;background:var(--color-surface,#fff);color:var(--color-text-secondary,#475569);font-size:12px;cursor:pointer">保存记录</button>' +
+        '<button id="btn-wrong-export" type="button" title="把当前错题导出为独立快照 JSON（一次性，不实时同步）" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid var(--color-border,#E6E8EB);border-radius:8px;background:var(--color-surface,#fff);color:var(--color-text-secondary,#475569);font-size:12px;cursor:pointer">导出错题</button>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;width:100%">' +
+        '<button id="btn-hist-load" type="button" title="从 history.js / 备份 JSON 导入恢复学习记录" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid var(--color-border,#E6E8EB);border-radius:8px;background:var(--color-surface,#fff);color:var(--color-text-secondary,#475569);font-size:12px;cursor:pointer">导入记录</button>' +
+        '<button id="btn-import-bank" type="button" title="从 JSON / Word 文件导入题库（章节训练/强化训练/冲刺模拟）" style="flex:1;min-width:84px;padding:7px 8px;border:1px solid #2563EB;border-radius:8px;background:#EFF6FF;color:#2563EB;font-size:12px;cursor:pointer;font-weight:600">导入题库</button>' +
+      '</div>';
     if(foot) foot.parentNode.insertBefore(wrap, foot); else sidebar.appendChild(wrap);
     const sb = document.getElementById('btn-hist-save');
     const lb = document.getElementById('btn-hist-load');
@@ -4450,6 +4583,385 @@
     if(sb) sb.addEventListener('click', saveHistoryFile);
     if(lb) lb.addEventListener('click', loadHistoryFile);
     if(we) we.addEventListener('click', exportWrongSnapshot);
+    const ib = document.getElementById('btn-import-bank');
+    if(ib) ib.addEventListener('click', openImportBankDialog);
+  }
+
+
+  // ============ 题库导入功能（JSON / Word，章节/强化/冲刺三种题库） ============
+  const IB_SUBJECTS = [
+    { id: 'accounting', name: 'CPA 会计' },
+    { id: 'auditing', name: 'CPA 审计' },
+    { id: 'finance', name: 'CPA 财务成本管理' },
+    { id: 'tax', name: 'CPA 税法' },
+    { id: 'economics', name: 'CPA 经济法' },
+    { id: 'strategy', name: 'CPA 公司战略' },
+    { id: 'mid-practice', name: '中级会计实务' },
+    { id: 'mid-finance', name: '中级财务管理' },
+    { id: 'mid-econ', name: '中级经济法' },
+    { id: 'tax-law1', name: '税务师 税法一' },
+    { id: 'tax-law2', name: '税务师 税法二' },
+    { id: 'tax-practice', name: '税务师 涉税服务实务' },
+    { id: 'tax-lawsvc', name: '税务师 涉税服务相关法律' },
+    { id: 'tax-fa', name: '税务师 财务与会计' },
+  ];
+
+  let _ibParsedData = null;
+  let _ibBankType = 'papers';
+  let _ibSubject = 'mid-practice';
+
+  function openImportBankDialog() {
+    if (document.getElementById('ib-mask')) { document.getElementById('ib-mask').remove(); }
+    _ibParsedData = null;
+    const curSubj = (window.APP && APP.state && APP.state.subject) || 'mid-practice';
+    _ibSubject = curSubj;
+    const mask = document.createElement('div');
+    mask.id = 'ib-mask';
+    mask.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:99999;display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif';
+    mask.innerHTML =
+      '<div style="background:#fff;border-radius:14px;width:92%;max-width:760px;max-height:88vh;overflow:auto;padding:22px;box-shadow:0 20px 60px rgba(0,0,0,.3)">' +
+        '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px">' +
+          '<h3 style="margin:0;font-size:18px">导入题库</h3>' +
+          '<button id="ib-close" style="border:none;background:none;font-size:22px;cursor:pointer;color:#94A3B8;line-height:1">&times;</button>' +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px">' +
+          '<div><label style="font-weight:600;font-size:13px;display:block;margin-bottom:5px;color:#334155">题库类型</label>' +
+            '<select id="ib-bank-type" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px">' +
+              '<option value="papers">冲刺模拟（套卷）</option>' +
+              '<option value="chapters">章节训练</option>' +
+              '<option value="intensive">强化训练</option>' +
+            '</select></div>' +
+          '<div><label style="font-weight:600;font-size:13px;display:block;margin-bottom:5px;color:#334155">目标科目</label>' +
+            '<select id="ib-subject" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px"></select></div>' +
+        '</div>' +
+        '<div id="ib-paper-mode-wrap" style="margin-bottom:14px">' +
+          '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:5px;color:#334155">套卷分类（仅冲刺模拟）</label>' +
+          '<select id="ib-paper-mode" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px">' +
+            '<option value="sim">全真模拟</option>' +
+            '<option value="past">历年真题</option>' +
+          '</select></div>' +
+        '<div id="ib-paper-name-wrap" style="margin-bottom:14px">' +
+          '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:5px;color:#334155">试卷名称（留空则用文件名/原名称）</label>' +
+          '<input type="text" id="ib-paper-name" placeholder="例如：2026年税务师税法一冲刺卷（一）" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px;box-sizing:border-box"></div>' +
+        '<div id="ib-group-name-wrap" style="margin-bottom:14px;display:none">' +
+          '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:5px;color:#334155">分组名称（仅强化训练，留空默认"强化训练"）</label>' +
+          '<input type="text" id="ib-group-name" placeholder="例如：5年真题3套模拟 / 计算题专项 / 综合题强化" style="width:100%;padding:8px 10px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px;box-sizing:border-box"></div>' +
+        '<div style="margin-bottom:14px">' +
+          '<label style="font-weight:600;font-size:13px;display:block;margin-bottom:5px;color:#334155">选择文件（.json 或 .docx）</label>' +
+          '<input type="file" id="ib-file" accept=".json,.docx" style="width:100%;padding:8px;border:1px solid #CBD5E1;border-radius:8px;font-size:13px">' +
+        '</div>' +
+        '<div style="display:flex;gap:10px;margin-bottom:14px">' +
+          '<button id="ib-parse" style="flex:1;padding:10px;border:none;border-radius:8px;background:#2563EB;color:#fff;font-size:14px;font-weight:600;cursor:pointer">解析文件</button>' +
+          '<button id="ib-cancel1" style="padding:10px 20px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;color:#475569;font-size:14px;cursor:pointer">取消</button>' +
+        '</div>' +
+        '<div id="ib-msg" style="margin-bottom:12px;font-size:13px;display:none"></div>' +
+        '<div id="ib-preview-wrap" style="display:none">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">' +
+            '<h4 style="margin:0;font-size:15px">解析预览</h4>' +
+            '<span id="ib-stats" style="font-size:12px;color:#64748B"></span>' +
+          '</div>' +
+          '<div id="ib-preview" style="max-height:340px;overflow:auto;border:1px solid #E2E8F0;border-radius:8px;padding:10px;background:#F8FAFC"></div>' +
+          '<div style="margin-top:14px;display:flex;gap:10px">' +
+            '<button id="ib-confirm" style="flex:1;padding:11px;border:none;border-radius:8px;background:#16A34A;color:#fff;font-size:14px;font-weight:600;cursor:pointer">确认导入</button>' +
+            '<button id="ib-cancel2" style="padding:11px 24px;border:1px solid #CBD5E1;border-radius:8px;background:#fff;color:#475569;font-size:14px;cursor:pointer">取消</button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    document.body.appendChild(mask);
+    // 填充科目
+    const sel = mask.querySelector('#ib-subject');
+    IB_SUBJECTS.forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.id; o.textContent = s.name;
+      if (s.id === curSubj) o.selected = true;
+      sel.appendChild(o);
+    });
+    // 事件
+    mask.querySelector('#ib-close').onclick = () => mask.remove();
+    mask.querySelector('#ib-cancel1').onclick = () => mask.remove();
+    mask.querySelector('#ib-cancel2').onclick = () => mask.remove();
+    mask.querySelector('#ib-bank-type').onchange = (e) => {
+      _ibBankType = e.target.value;
+      mask.querySelector('#ib-paper-mode-wrap').style.display = (e.target.value === 'papers') ? '' : 'none';
+      mask.querySelector('#ib-group-name-wrap').style.display = (e.target.value === 'intensive') ? '' : 'none';
+    };
+    mask.querySelector('#ib-subject').onchange = (e) => { _ibSubject = e.target.value; };
+    mask.querySelector('#ib-parse').onclick = () => ibParseFile(mask);
+    mask.querySelector('#ib-confirm').onclick = () => ibDoImport(mask);
+  }
+
+  function ibMsg(mask, text, isError) {
+    const el = mask.querySelector('#ib-msg');
+    el.style.display = 'block';
+    el.style.color = isError ? '#DC2626' : '#16A34A';
+    el.textContent = text;
+  }
+
+  async function ibParseFile(mask) {
+    const fileInput = mask.querySelector('#ib-file');
+    const file = fileInput.files[0];
+    if (!file) { ibMsg(mask, '请先选择文件', true); return; }
+    ibMsg(mask, '正在解析...', false);
+    try {
+      const ext = file.name.split('.').pop().toLowerCase();
+      let data;
+      if (ext === 'json') {
+        const text = await file.text();
+        data = JSON.parse(text);
+      } else if (ext === 'docx') {
+        if (typeof mammoth === 'undefined') { ibMsg(mask, 'mammoth.js 未加载，请检查文件', true); return; }
+        const buf = await file.arrayBuffer();
+        const result = await mammoth.convertToHtml({ arrayBuffer: buf });
+        data = ibExtractFromHtml(result.value, file.name.replace(/\.docx$/i, ''));
+      } else {
+        ibMsg(mask, '不支持的文件格式：' + ext, true); return;
+      }
+      // 应用用户输入的试卷名称（如果有）
+      const nameInput = mask.querySelector('#ib-paper-name');
+      if (nameInput && nameInput.value.trim()) {
+        const newName = nameInput.value.trim();
+        if (Array.isArray(data)) {
+          data.forEach((p, i) => { p.name = data.length > 1 ? (newName + '（' + (i+1) + '）') : newName; });
+        } else if (data && typeof data === 'object' && !data.sections) {
+          data.name = newName;
+        }
+      }
+      // 应用用户输入的分组名称（仅强化训练）
+      const groupInput = mask.querySelector('#ib-group-name');
+      if (groupInput && groupInput.value.trim() && _ibBankType === 'intensive') {
+        const gn = groupInput.value.trim();
+        if (Array.isArray(data)) {
+          data.forEach(p => { p.groupName = gn; });
+        } else if (data && typeof data === 'object') {
+          data.groupName = gn;
+        }
+      }
+      _ibParsedData = data;
+      ibRenderPreview(mask, data);
+      ibMsg(mask, '解析完成，请确认后导入', false);
+    } catch (e) {
+      console.error(e);
+      ibMsg(mask, '解析失败：' + (e.message || e), true);
+    }
+  }
+
+  // 从 Word 转的 HTML 提取题目结构
+  function ibExtractFromHtml(html, paperName) {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(html, 'text/html');
+    const body = doc.body;
+    const questions = [];
+    let curType = 'single';
+    let curRawType = '单项选择题';
+    let curQ = null;
+    let curTables = [];
+    let inAnswer = false, inAnalysis = false;
+
+    const TYPE_MAP = [
+      { re: /单项选择|单选题/, type: 'single', raw: '单项选择题' },
+      { re: /多项选择|多选题/, type: 'multi', raw: '多项选择题' },
+      { re: /判断题/, type: 'judge', raw: '判断题' },
+      { re: /计算分析|计算题/, type: 'calc', raw: '计算分析题' },
+      { re: /综合题/, type: 'comp', raw: '综合题' },
+      { re: /简答|计算问答|综合分析|案例分析/, type: 'subjective', raw: '主观题' },
+    ];
+
+    function flushQ() {
+      if (curQ) {
+        if (curTables.length) curQ.tables = curTables;
+        questions.push(curQ);
+      }
+      curQ = null; curTables = []; inAnswer = false; inAnalysis = false;
+    }
+
+    function getText(el) { return (el.textContent || '').trim(); }
+
+    const nodes = Array.from(body.children);
+    for (let i = 0; i < nodes.length; i++) {
+      const el = nodes[i];
+      const tag = el.tagName;
+      // 表格
+      if (tag === 'TABLE') {
+        const t = ibParseTable(el);
+        if (curQ) curTables.push(t);
+        continue;
+      }
+      if (tag !== 'P' && tag !== 'H1' && tag !== 'H2' && tag !== 'H3' && tag !== 'H4' && tag !== 'DIV') continue;
+      const text = getText(el);
+      if (!text) continue;
+      // 题型标题
+      let matchedType = null;
+      for (const tm of TYPE_MAP) {
+        if (tm.re.test(text) && text.length < 30) { matchedType = tm; break; }
+      }
+      if (matchedType) {
+        flushQ();
+        curType = matchedType.type;
+        curRawType = matchedType.raw;
+        continue;
+      }
+      // 答案行
+      const ansM = text.match(/(?:答案|【答案】)\s*[:：]?\s*([A-Z]+)/);
+      if (ansM && curQ) {
+        curQ.answer = ansM[1];
+        inAnswer = true;
+        // 答案行后面可能还有解析
+        const rest = text.replace(/(?:答案|【答案】)\s*[:：]?\s*[A-Z]+/, '').trim();
+        if (rest) {
+          const anaM = rest.match(/(?:解析|【解析】)\s*[:：]?\s*(.+)/);
+          if (anaM) { curQ.analysis = anaM[1]; inAnalysis = true; }
+        }
+        continue;
+      }
+      // 解析行
+      const anaM = text.match(/(?:解析|【解析】)\s*[:：]?\s*(.+)/);
+      if (anaM && curQ) {
+        curQ.analysis = (curQ.analysis ? curQ.analysis + '\n' : '') + anaM[1];
+        inAnalysis = true;
+        continue;
+      }
+      // 题号行 → 新题目
+      const qNumM = text.match(/^(\d+)[\.．、]\s*(.+)/);
+      if (qNumM) {
+        flushQ();
+        curQ = {
+          chapter: '', section: curRawType, type: curType, raw_type: curRawType, ptype: curType,
+          src_no: parseInt(qNumM[1], 10),
+          stem: qNumM[2].trim(),
+          options: {}, answer: '', analysis: '',
+        };
+        inAnswer = false; inAnalysis = false;
+        continue;
+      }
+      // 选项行
+      const optM = text.match(/^([A-Z])[\.．、]\s*(.+)/);
+      if (optM && curQ && !inAnswer && !inAnalysis) {
+        curQ.options[optM[1]] = optM[2].trim();
+        continue;
+      }
+      // 续行（题干/解析的延续）
+      if (curQ) {
+        if (inAnalysis) {
+          curQ.analysis = (curQ.analysis ? curQ.analysis + '\n' : '') + text;
+        } else if (!inAnswer && Object.keys(curQ.options).length === 0) {
+          curQ.stem += '\n' + text;
+        } else if (!inAnswer) {
+          // 选项的延续或题干延续
+          const lastOpt = Object.keys(curQ.options).pop();
+          if (lastOpt && text.length < 200 && !/^\d/.test(text)) {
+            curQ.options[lastOpt] += '\n' + text;
+          } else {
+            curQ.stem += '\n' + text;
+          }
+        }
+      }
+    }
+    flushQ();
+
+    // 构造套卷数据
+    const paperMode = document.querySelector('#ib-paper-mode') ? document.querySelector('#ib-paper-mode').value : 'sim';
+    const id = 'imported_' + Date.now();
+    return {
+      id, name: paperName || ('导入试卷_' + new Date().toLocaleDateString()),
+      mode: paperMode, year: new Date().getFullYear(),
+      questions,
+    };
+  }
+
+  // 解析 HTML 表格为题库 tables 格式
+  function ibParseTable(tableEl) {
+    const rows = tableEl.querySelectorAll('tr');
+    const cells = [];
+    let nrow = rows.length, ncol = 0;
+    const grid = {};
+    rows.forEach((tr, r) => {
+      const tds = tr.querySelectorAll('td, th');
+      let c = 0;
+      tds.forEach(td => {
+        while (grid[r + ',' + c]) c++;
+        const rs = parseInt(td.getAttribute('rowspan') || '1', 10);
+        const cs = parseInt(td.getAttribute('colspan') || '1', 10);
+        cells.push({ r, c, rs, cs, text: (td.textContent || '').trim() });
+        for (let dr = 0; dr < rs; dr++)
+          for (let dc = 0; dc < cs; dc++)
+            grid[(r + dr) + ',' + (c + dc)] = true;
+        c += cs;
+      });
+      ncol = Math.max(ncol, c);
+    });
+    return { nrow, ncol, cells };
+  }
+
+  // 渲染解析预览
+  function ibRenderPreview(mask, data) {
+    const wrap = mask.querySelector('#ib-preview-wrap');
+    const prev = mask.querySelector('#ib-preview');
+    const stats = mask.querySelector('#ib-stats');
+    wrap.style.display = 'block';
+    let html = '';
+    let totalQ = 0;
+    if (_ibBankType === 'chapters') {
+      for (const chName of Object.keys(data)) {
+        const ch = data[chName];
+        html += '<div style="font-weight:700;margin:8px 0 4px;color:#1E40AF">章节：' + chName + '</div>';
+        for (const secName of Object.keys(ch.sections || {})) {
+          const sec = ch.sections[secName];
+          const qs = sec.questions || [];
+          totalQ += qs.length;
+          html += '<div style="margin-left:12px;margin-bottom:4px"><span style="color:#475569">小节：' + secName + '</span> <span style="color:#94A3B8;font-size:12px">(' + qs.length + '题)</span></div>';
+        }
+      }
+    } else {
+      const arr = Array.isArray(data) ? data : [data];
+      arr.forEach((p, pi) => {
+        const qs = p.questions || [];
+        totalQ += qs.length;
+        html += '<div style="font-weight:700;margin:8px 0 4px;color:#1E40AF">套卷' + (pi + 1) + '：' + (p.name || '未命名') + ' <span style="color:#94A3B8;font-size:12px;font-weight:400">(' + qs.length + '题, mode=' + (p.mode || 'sim') + ')</span></div>';
+        // 题型统计
+        const typeCount = {};
+        qs.forEach(q => { typeCount[q.raw_type || q.type] = (typeCount[q.raw_type || q.type] || 0) + 1; });
+        html += '<div style="margin-left:12px;font-size:12px;color:#64748B;margin-bottom:4px">' + Object.entries(typeCount).map(([k, v]) => k + ':' + v).join('，') + '</div>';
+        // 前3题预览
+        qs.slice(0, 3).forEach((q, qi) => {
+          html += '<div style="margin-left:12px;margin-bottom:6px;padding:6px 8px;background:#fff;border-radius:6px;border:1px solid #E2E8F0">' +
+            '<div style="font-size:12px;color:#64748B;margin-bottom:2px">第' + (qi + 1) + '题 [' + (q.raw_type || q.type) + ']' + (q.answer ? ' 答案:' + q.answer : ' <span style="color:#DC2626">缺答案</span>') + '</div>' +
+            '<div style="font-size:12px;color:#334155;white-space:pre-wrap;max-height:60px;overflow:hidden">' + (q.stem || '').substring(0, 150) + '</div>' +
+          '</div>';
+        });
+        if (qs.length > 3) html += '<div style="margin-left:12px;font-size:12px;color:#94A3B8">... 共 ' + qs.length + ' 题</div>';
+      });
+    }
+    prev.innerHTML = html || '<div style="color:#94A3B8">无数据</div>';
+    stats.textContent = '共 ' + totalQ + ' 道题';
+  }
+
+  // 确认导入
+  async function ibDoImport(mask) {
+    if (!_ibParsedData) { ibMsg(mask, '请先解析文件', true); return; }
+    const btn = mask.querySelector('#ib-confirm');
+    btn.disabled = true; btn.textContent = '导入中...';
+    try {
+      const resp = await fetch('/api/import-bank', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bankType: _ibBankType, subject: _ibSubject, data: _ibParsedData, paperMode: document.querySelector('#ib-paper-mode') ? document.querySelector('#ib-paper-mode').value : null,
+          // 线上种子：把当前页面已加载的完整题库一并提交，确保 KV 首次写入时包含静态兜底题库（不丢原有套卷）
+          fullBanks: { chapters: APP.chapters || null, papers: APP.papers || null, intensive: APP.intensivePapers || null } }),
+      });
+      const r = await resp.json();
+      if (r.ok) {
+        ibMsg(mask, '导入成功！新增 ' + r.addedQuestions + ' 道题，备份：' + (r.backup || '').split(/[\\\/]/).pop(), false);
+        btn.textContent = '导入成功，刷新页面';
+        btn.onclick = () => location.reload();
+        mask.querySelector('#ib-cancel2').textContent = '关闭';
+      } else {
+        ibMsg(mask, '导入失败：' + (r.error || '未知错误'), true);
+        btn.disabled = false; btn.textContent = '确认导入';
+      }
+    } catch (e) {
+      ibMsg(mask, '导入请求失败：' + (e.message || e), true);
+      btn.disabled = false; btn.textContent = '确认导入';
+    }
   }
 
   // 导入历史回灌：把题库中每题自带的 user_answer 作为「导入历史」归档。

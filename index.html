@@ -2719,6 +2719,34 @@ body.mode-practice .q-head .diff,body.mode-practice .q-head #pr-meta{display:non
 body.mode-practice .stem{max-height:200px !important;overflow-y:auto !important;scrollbar-width:thin}
 body.mode-practice .stem::-webkit-scrollbar{width:6px}
 body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25);border-radius:3px}
+  /* 章节训练删除按钮 */
+  .ch-del-btn {
+    width: 22px; height: 22px;
+    border: none; border-radius: 50%;
+    background: transparent;
+    color: #94A3B8;
+    font-size: 16px; line-height: 1;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    padding: 0;
+    flex-shrink: 0;
+  }
+  .ch-del-btn:hover {
+    color: #DC2626;
+    background: #FEE2E2;
+  }
+  .ch-head-del {
+    margin-right: 4px;
+  }
+  .sub .ch-del-btn {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 2;
+  }
+  .sub {
+    position: relative;
+  }
 </style>
 </head>
 <body>
@@ -3658,6 +3686,7 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
 <script src="bank_chapters.js" defer></script>
 <script src="bank_papers.js" defer></script>
 <script src="bank_intensive.js" defer></script>
+<script src="mammoth.browser.min.js" defer></script>
 <script src="renderer.js" defer></script>
 <!-- ===== 移动端导航逻辑（≤767px 汉堡 + 抽屉） ===== -->
 <script>
