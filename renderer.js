@@ -363,12 +363,24 @@
     }
     return out.join('<br>');
   }
-  // 题目显示号：主观多问大题 -> “26-1 / 26-2”；单题 -> 连续编号
+  // 题目显示号：优先原题号（导入题库 src_no / no / num，主观题 parentNo+subNo 如 “26-1”）
+  // 内置题库无原题号字段 → 保持题型内编号逻辑
   function qNo(q, idx){
     if(!q) return String((idx == null ? 0 : idx) + 1);
+    const isSubj = q.type === 'subjective';
+    // 原题号优先：主观题大题号+小题号（如 26-1），客观题 src_no / no / num 直接显示
+    // 内置章节题库 src_no 为题型内编号 → 显示结果与原逻辑一致；内置冲刺卷为整卷连续原号 → 按原试卷题号显示
+    if(isSubj && q.parentNo != null && q.parentNo !== ''){
+      return (q.subNo != null && q.subNo !== '') ? (q.parentNo + '-' + q.subNo) : String(q.parentNo);
+    }
+    if(!isSubj){
+      const srcNo = (q.src_no != null && q.src_no !== '') ? q.src_no
+        : (q.no != null && q.no !== '') ? q.no
+        : (q.num != null && q.num !== '') ? q.num : null;
+      if(srcNo != null) return String(srcNo);
+    }
     // 仅在做题页面（practiceQuestions 已初始化且包含此题）使用题型内编号
     if(typeof practiceQuestions !== 'undefined' && Array.isArray(practiceQuestions) && practiceQuestions.indexOf(q) >= 0){
-      const isSubj = q.type === 'subjective';
       const ptype = q.ptype || q.type;
       // 筛选同题型题目
       const typeList = practiceQuestions.filter(qq => {
@@ -3325,6 +3337,44 @@
   }
 
   // ---- 当前题（只更新题干/选项/判定，保留 .q-head 外壳与 .q-foot） ----
+  // ---- 题干与选项间距调节（电脑版；移动端隐藏按钮）----
+  // 题卡在模板(tpl-practice)中、mountView 后才注入 DOM，因此 apply/bind 拆分：
+  // apply 立即生效（CSS 变量全局可用）；bind 幂等，视图切换(hashchange)后重新挂载
+  function initOptsGap(){
+    const apply = (v) => {
+      const px = Math.max(4, Math.min(44, Math.round(Number(v) || 18)));
+      document.documentElement.style.setProperty('--opts-gap', px + 'px');
+      try{ localStorage.setItem('q-opts-gap', String(px)); }catch(e){}
+      const range = document.getElementById('opts-gap-range');
+      const val = document.getElementById('opts-gap-val');
+      if(range) range.value = px;
+      if(val) val.textContent = px + 'px';
+    };
+    const bind = () => {
+      const btn = document.getElementById('btn-opts-gap');
+      const pop = document.getElementById('opts-gap-pop');
+      const range = document.getElementById('opts-gap-range');
+      const val = document.getElementById('opts-gap-val');
+      if(!btn || !pop || !range || !val || btn.dataset.gapBound) return;
+      btn.dataset.gapBound = '1';
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const show = pop.style.display === 'none' || !pop.style.display;
+        pop.style.display = show ? 'block' : 'none';
+      });
+      range.addEventListener('input', () => apply(range.value));
+      document.addEventListener('click', (e) => {
+        if(pop.style.display !== 'none' && e.target !== btn && !pop.contains(e.target)) pop.style.display = 'none';
+      });
+      apply(parseInt(range.value, 10));
+    };
+    let init = 18;
+    try{ const s = parseInt(localStorage.getItem('q-opts-gap'), 10); if(!isNaN(s) && s >= 4 && s <= 44) init = s; }catch(e){}
+    apply(init);
+    bind();
+    window.addEventListener('hashchange', bind);
+  }
+
   function renderCurrentQuestion(){
     const q = practiceQuestions[currentIndex];
     if(!q) return;
@@ -5556,6 +5606,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderBreadcrumbs();
   renderSidebarStats();
   mountView(getCurrentView());
+  initOptsGap(); // 题卡模板注入后绑定间距控件
   window.addEventListener('hashchange', () => {
     syncSidebarActive();
     mountView(getCurrentView());
