@@ -620,6 +620,15 @@ body.resizing-split,body.resizing-split *{cursor:col-resize!important;user-selec
 .qnav a .c{margin-left:auto;font-family:var(--num);font-size:11px}
 
 /* ============================ 6. 中栏：题目（Notion 式排版） ============================ */
+/* 题干与选项间距调节（电脑版） */
+#opts-gap-pop{position:absolute;right:0;top:calc(100% + 8px);z-index:60;width:216px;
+  background:var(--color-surface,#fff);border:1px solid var(--color-border,#E6E8EB);border-radius:12px;
+  box-shadow:0 8px 30px rgba(43,40,38,.16);padding:14px 16px;font-size:13px;color:var(--color-text-primary);text-align:left}
+#opts-gap-pop .og-title{font-weight:600;margin-bottom:10px}
+#opts-gap-pop .og-row{display:flex;align-items:center;gap:10px}
+#opts-gap-pop .og-val{font-family:var(--num);font-size:12px;color:var(--color-text-secondary);min-width:40px;text-align:right}
+#opts-gap-pop input[type=range]{flex:1;accent-color:var(--color-primary,#C03B2B);height:20px;cursor:pointer}
+@media (max-width:767px){#btn-opts-gap{display:none !important}}
 .q-card{background:var(--color-surface);border:1px solid var(--color-border);border-radius:var(--radius-card);
   box-shadow:var(--shadow-raised);padding:20px 22px 18px}
 .q-head{display:flex;align-items:center;gap:10px;padding-bottom:12px;border-bottom:1px solid var(--color-border)}
@@ -633,7 +642,7 @@ body.resizing-split,body.resizing-split *{cursor:col-resize!important;user-selec
 .tag-red{background:var(--color-danger-soft);color:var(--color-danger-text)}
 .q-head .diff{font-size:11px;color:#B45309;letter-spacing:1px}
 .q-head .meta{font-size:12px;color:var(--color-text-secondary)}
-.q-head .sp{margin-left:auto;display:flex;gap:4px}
+.q-head .sp{margin-left:auto;display:flex;gap:4px;position:relative}
 .ico-btn{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--color-text-secondary)}
 .ico-btn:hover{background:var(--color-surface-muted);color:var(--color-text-primary)}
 .ico-btn.on{background:rgba(192,59,43,.14);color:var(--color-primary-strong)}
@@ -646,7 +655,7 @@ body.resizing-split,body.resizing-split *{cursor:col-resize!important;user-selec
   background:#FBFCFE;border:1px solid var(--color-border);font-size:13px;color:var(--color-text-secondary);line-height:1.7}
 .stem-note b{color:var(--color-text-primary);font-weight:600}
 
-.opts{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.opts{margin-top:var(--opts-gap,18px);display:flex;flex-direction:column;gap:10px}
 .opt{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:var(--radius-btn);
   border:1px solid var(--color-border);background:#fff;font-size:14px;line-height:1.7;cursor:pointer;
   transition:border-color .15s,background .15s,box-shadow .15s}
@@ -1742,7 +1751,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 .tag-red{background:var(--color-danger-soft);color:var(--color-danger-text)}
 .q-head .diff{font-size:11px;color:#B45309;letter-spacing:1px}
 .q-head .meta{font-size:12px;color:var(--color-text-secondary)}
-.q-head .sp{margin-left:auto;display:flex;gap:4px}
+.q-head .sp{margin-left:auto;display:flex;gap:4px;position:relative}
 .ico-btn{width:30px;height:30px;border-radius:7px;display:grid;place-items:center;color:var(--color-text-secondary)}
 .ico-btn:hover{background:var(--color-surface-muted);color:var(--color-text-primary)}
 .ico-btn.on{background:rgba(192,59,43,.14);color:var(--color-primary-strong)}
@@ -1755,7 +1764,7 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
   background:#FBFCFE;border:1px solid var(--color-border);font-size:13px;color:var(--color-text-secondary);line-height:1.7}
 .stem-note b{color:var(--color-text-primary);font-weight:600}
 
-.opts{margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.opts{margin-top:var(--opts-gap,18px);display:flex;flex-direction:column;gap:10px}
 .opt{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:var(--radius-btn);
   border:1px solid var(--color-border);background:#fff;font-size:14px;line-height:1.7;cursor:pointer;
   transition:border-color .15s,background .15s,box-shadow .15s}
@@ -2456,7 +2465,7 @@ a:hover{color:var(--color-primary-deep)}
 .q-card{padding:16px 18px 14px}
 .q-head{padding-bottom:9px;gap:8px}
 .q-no{min-width:26px;height:26px;padding:0 7px;font-size:13px}
-.opts{margin-top:12px;gap:8px}
+.opts{margin-top:var(--opts-gap,12px);gap:8px}
 .opt{padding:8px 12px;gap:10px}
 .opt .k{flex:0 0 22px;width:22px;height:22px;font-size:12px}
 .opt .txt{font-size:14px;line-height:1.6}
@@ -2719,6 +2728,10 @@ body.mode-practice .q-head .diff,body.mode-practice .q-head #pr-meta{display:non
 body.mode-practice .stem{max-height:200px !important;overflow-y:auto !important;scrollbar-width:thin}
 body.mode-practice .stem::-webkit-scrollbar{width:6px}
 body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25);border-radius:3px}
+/* 电脑端题干完整展开（方案1：计算分析/综合题长题干一次看全）；手机端保持 200px 内滚动 */
+@media (min-width:768px){
+  body.mode-practice .stem{max-height:none !important;overflow:visible !important}
+}
   /* 章节训练删除按钮 */
   .ch-del-btn {
     width: 22px; height: 22px;
@@ -3003,6 +3016,16 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
             <button class="ico-btn" id="btn-error" title="待纠错（答案有问题）" type="button">
               <svg viewBox="0 0 24 24"><path d="M12 3 2 21h20L12 3zm0 5 5.5 9.5H6.5L12 8zm-1 3v3h2v-3h-2zm0 4v2h2v-2h-2z"/></svg>
             </button>
+            <button class="ico-btn" id="btn-opts-gap" title="题干与选项间距（可调）" type="button">
+              <svg viewBox="0 0 24 24"><path d="M5 7h14M5 12h14M5 17h14"/></svg>
+            </button>
+            <div id="opts-gap-pop" style="display:none">
+              <div class="og-title">题干与选项间距</div>
+              <div class="og-row">
+                <input type="range" id="opts-gap-range" min="4" max="44" step="1" value="18">
+                <span class="og-val" id="opts-gap-val">18px</span>
+              </div>
+            </div>
           </div>
         </div>
 
