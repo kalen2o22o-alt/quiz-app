@@ -1410,7 +1410,8 @@
         // 空关：没有实际题目数据，不点亮星级，按钮置灰
         const stars = isEmpty ? '☆☆☆' : starRating(accuracy, done);
         const secName = escapeHtml(secTitle.replace(/^第\d+关\s*/,''));
-        const secIdx = (secTitle.match(/^第(\d+)关/) || [,0])[1];
+        // 章节名非「第N关」形态（如按题型分节）时序号留空，避免显示 fallback 数字 0
+        const secIdx = (secTitle.match(/^第(\d+)关/) || [, ''])[1];
         // 状态仅作为背景信息，不再显示操作按钮与有错题标签：点击关卡卡片直接进入练习
         const isDone = !isEmpty && hasSubmitted;
         const href = isEmpty ? '#' : `题刷刷.html?chapter=${encodeURIComponent(chTitle)}&section=${encodeURIComponent(secTitle)}#practice`;
@@ -1447,7 +1448,7 @@
           <button class="ch-head" onclick="toggleCh('ch${chIdx}')">
             <div class="ch-num">${String(chIdx).padStart(2,'0')}</div>
             <div class="ch-main">
-              <div class="ch-title">${escapeHtml(chTitle)} <span class="tag tag-gray">基础</span></div>
+              <div class="ch-title"><span class="ch-title-txt">${escapeHtml(chTitle)}</span><span class="tag tag-gray">基础</span></div>
               <div class="ch-meta">
                 <span>共 <b>${chRealTotal}</b> 题</span><span class="vline"></span>
                 <span>已做 <b>${chDoneDisplay}</b></span><span class="vline"></span>

@@ -417,7 +417,9 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
   display:grid;place-items:center;font-family:var(--num);font-size:15px;font-weight:700;color:var(--color-primary-strong)}
 .ch-item.done .ch-num{background:var(--color-success-soft);color:var(--color-success-text)}
 .ch-main{min-width:0;flex:1}
-.ch-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;line-height:1.4}
+.ch-title{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:600;line-height:1.4;min-width:0}
+    .ch-title-txt{flex:1 1 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .ch-title .tag,.ch-title .star{flex:0 0 auto}
 .ch-title .star{color:#B45309;font-size:12px;letter-spacing:1px}
 .ch-meta{display:flex;align-items:center;gap:14px;margin-top:5px;font-size:12px;color:var(--color-text-secondary)}
 .ch-meta b{font-family:var(--num);color:var(--color-text-primary);font-weight:600}
@@ -439,7 +441,8 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 .sub{display:flex;align-items:center;gap:14px;padding:14px 0;border-bottom:1px solid var(--color-border)}
 .sub:last-of-type{border-bottom:0}
 .sub.empty{opacity:.72;background:repeating-linear-gradient(90deg,transparent,transparent 8px,rgba(241,245,249,.6) 8px,rgba(241,245,249,.6) 16px)}
-.sub-idx{width:22px;height:22px;flex:0 0 22px;border-radius:50%;background:var(--color-primary-soft);
+.sub-idx:empty{display:none}
+    .sub-idx{width:22px;height:22px;flex:0 0 22px;border-radius:50%;background:var(--color-primary-soft);
   color:var(--color-primary-strong);font-family:var(--num);font-size:11px;font-weight:700;display:grid;place-items:center}
 .sub-stars{flex:0 0 52px;font-size:13px;letter-spacing:1px;color:#F59E0B;text-align:center}
 .sub-name{flex:1;min-width:0}
@@ -2759,6 +2762,19 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
   }
   .sub {
     position: relative;
+  }
+  /* 手机模式（<=767px）：章节关卡卡改两行横向布局
+     行1 = 序号 + 星级 + 题型名（横排，修复题型名被 260px 进度区挤压成逐字竖排）
+     行2 = 进度：x/y + 进度条 + 百分比 */
+  @media (max-width:767px){
+    .sub{flex-wrap:wrap;row-gap:8px;padding:12px 2px}
+    .sub-idx{flex:0 0 auto}
+    .sub-stars{flex:0 0 auto;width:auto;min-width:52px}
+    .sub-name{flex:1 1 auto;min-width:0;white-space:nowrap}
+    .sub-name .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+    .sub-progress{flex:0 0 100%;gap:8px;padding-left:0}
+    .sub-progress-text{white-space:nowrap}
+    .sub-percent{width:auto;min-width:38px}
   }
 </style>
 </head>
