@@ -4477,6 +4477,7 @@
             subjects.length = 0;
             mj.subjects.forEach(s => subjects.push(s));
             APP.subjects = mj.subjects;
+            window.__META_OK__ = true;
             metaLoaded = true;
           }
         }
@@ -5599,7 +5600,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   initBackupUI();
   initNotesUI();
   migrateImportedAnswers();
-  initFileModeSubjects(); // 确保在渲染前重新计算 hasData
+  // hasData 以 /api/meta 动态结果为准（本地服务器模式）；仅当 /api 不可用（线上静态/云端/file://）才用 bank_*.js 兜底重算
+  if(!window.__META_OK__){ initFileModeSubjects(); }
   const current = getSubject();
   const sub = subjects.find(s => s.id === current);
   applyTheme(current);
