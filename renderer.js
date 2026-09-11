@@ -4665,7 +4665,7 @@
   function openImportBankDialog() {
     if (document.getElementById('ib-mask')) { document.getElementById('ib-mask').remove(); }
     _ibParsedData = null;
-    const curSubj = (window.APP && APP.state && APP.state.subject) || 'mid-practice';
+    const curSubj = (window.APP && APP.state && APP.state.subject) || getSubject() || 'mid-practice';
     _ibSubject = curSubj;
     const mask = document.createElement('div');
     mask.id = 'ib-mask';
@@ -4985,6 +4985,24 @@
     }
     prev.innerHTML = html || '<div style="color:#94A3B8">无数据</div>';
     stats.textContent = '共 ' + totalQ + ' 道题';
+    let warnEl = mask.querySelector('#ib-preview-warn');
+    if(!warnEl){
+      warnEl = document.createElement('div');
+      warnEl.id = 'ib-preview-warn';
+      warnEl.style.cssText = 'margin-top:8px;padding:8px 10px;background:#FEF2F2;border:1px solid #FECACA;border-radius:8px;color:#DC2626;font-size:13px;display:none';
+      const wrap = mask.querySelector('#ib-preview-wrap');
+      if(wrap) wrap.appendChild(warnEl);
+    }
+    if(totalQ === 0){
+      warnEl.textContent = '未识别到题目/章节结构：请确认文件为可导入的题库文件（章节训练/强化/套卷格式）。若为 MinerU 等原始转换文件，请使用整理后的导入版 JSON。';
+      warnEl.style.display = 'block';
+      const cb = mask.querySelector('#ib-confirm');
+      if(cb) cb.disabled = true;
+    } else {
+      warnEl.style.display = 'none';
+      const cb = mask.querySelector('#ib-confirm');
+      if(cb) cb.disabled = false;
+    }
   }
 
   // 确认导入
@@ -5002,10 +5020,15 @@
       });
       const r = await resp.json();
       if (r.ok) {
-        ibMsg(mask, '导入成功！新增 ' + r.addedQuestions + ' 道题，备份：' + (r.backup || '').split(/[\\\/]/).pop(), false);
-        btn.textContent = '导入成功，刷新页面';
-        btn.onclick = () => location.reload();
-        mask.querySelector('#ib-cancel2').textContent = '关闭';
+        if (r.addedQuestions === 0) {
+          ibMsg(mask, '导入完成，但新增 0 道题——文件可能不是可识别的题库格式，本次未写入任何题目，请检查文件后重试。', true);
+          btn.disabled = false; btn.textContent = '确认导入';
+        } else {
+          ibMsg(mask, '导入成功！新增 ' + r.addedQuestions + ' 道题，备份：' + (r.backup || '').split(/[\\\/]/).pop(), false);
+          btn.textContent = '导入成功，刷新页面';
+          btn.onclick = () => location.reload();
+          mask.querySelector('#ib-cancel2').textContent = '关闭';
+        }
       } else {
         ibMsg(mask, '导入失败：' + (r.error || '未知错误'), true);
         btn.disabled = false; btn.textContent = '确认导入';
