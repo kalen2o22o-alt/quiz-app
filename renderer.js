@@ -368,9 +368,9 @@
   function qNo(q, idx){
     if(!q) return String((idx == null ? 0 : idx) + 1);
     const isSubj = q.type === 'subjective';
-    // 原题号优先：主观题大题号+小题号（如 26-1），客观题 src_no / no / num 直接显示
-    // 内置章节题库 src_no 为题型内编号 → 显示结果与原逻辑一致；内置冲刺卷为整卷连续原号 → 按原试卷题号显示
-    if(isSubj && q.parentNo != null && q.parentNo !== ''){
+    // 原题号优先：带原大题号(parentNo)的题(计算/综合分析/主观题，含客观型小题)显示"大题-小题"如 1-1、1-61
+    // 内置章节题库无 parentNo → 不受影响，走下方 src_no / 题型内编号
+    if(q.parentNo != null && q.parentNo !== ''){
       return (q.subNo != null && q.subNo !== '') ? (q.parentNo + '-' + q.subNo) : String(q.parentNo);
     }
     if(!isSubj){
@@ -4808,6 +4808,18 @@
     let curQ = null;
     let curTables = [];
     let inAnswer = false, inAnalysis = false;
+    // 计算/综合大题：当前大题号、大题标题、标题是否已并入首题
+    let curParentNo = null, parentTitle = '', lastParentForTitle = null;
+    function cnToNum(s){
+      if (/^\d+$/.test(s)) return parseInt(s, 10);
+      const cn = {'一':1,'二':2,'三':3,'四':4,'五':5,'六':6,'七':7,'八':8,'九':9,'十':10};
+      if (cn[s]) return cn[s];
+      if (s.indexOf('十') > 0) {
+        const p = cn[s[0]] || 0, q = cn[s[s.length - 1]] || 0;
+        return p * 10 + q;
+      }
+      return null;
+    }
 
     const TYPE_MAP = [
       { re: /单项选择|单选题/, type: 'single', raw: '单项选择题' },
@@ -4850,7 +4862,22 @@
         flushQ();
         curType = matchedType.type;
         curRawType = matchedType.raw;
+        // 新题型开始：大题号从头数
+        curParentNo = null; parentTitle = ''; lastParentForTitle = null;
         continue;
+      }
+      // 大题标记行（计算分析/综合/主观大题）："（一）…" 或 "一、…" → 设置当前大题号 parentNo
+      if (curType === 'calc' || curType === 'comp' || curType === 'subjective') {
+        const pm1 = text.match(/^[（(]\s*([一二三四五六七八九十]+|[0-9]+)\s*[）)]/);
+        const pm2 = text.match(/^([一二三四五六七八九十]+)\s*[、.．]\s*(?!\d)/);
+        const pn = pm1 ? cnToNum(pm1[1]) : (pm2 ? cnToNum(pm2[1]) : null);
+        if (pn) {
+          flushQ();
+          curParentNo = pn;
+          parentTitle = text.trim();
+          lastParentForTitle = null;
+          continue;
+        }
       }
       // 答案行
       const ansM = text.match(/(?:答案|【答案】)\s*[:：]?\s*([A-Z]+)/);
@@ -4876,10 +4903,23 @@
       const qNumM = text.match(/^(\d+)[\.．、]\s*(.+)/);
       if (qNumM) {
         flushQ();
+        const subNoVal = parseInt(qNumM[1], 10);
+        // 题干保留原题号：大题内小题保留 "1. " / "61. "，首题前缀大题标题（（一）…）
+        let stemText = qNumM[2].trim();
+        if (curParentNo != null) {
+          if (lastParentForTitle !== curParentNo) {
+            stemText = parentTitle + '\n' + qNumM[1] + '. ' + stemText;
+            lastParentForTitle = curParentNo;
+          } else {
+            stemText = qNumM[1] + '. ' + stemText;
+          }
+        }
         curQ = {
           chapter: '', section: curRawType, type: curType, raw_type: curRawType, ptype: curType,
-          src_no: parseInt(qNumM[1], 10),
-          stem: qNumM[2].trim(),
+          src_no: subNoVal,
+          parentNo: curParentNo != null ? curParentNo : null,
+          subNo: curParentNo != null ? subNoVal : null,
+          stem: stemText,
           options: {}, answer: '', analysis: '',
         };
         inAnswer = false; inAnalysis = false;
