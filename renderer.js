@@ -81,7 +81,15 @@
   // 仅题干括号、无平台答案的题(第1-12关)仍待校验，正确率显示 —
   function isVerified(q){ return q.verified === true; }
   // 题型：客观题由系统自动判分；主观题需用户手动判分，不自动计入错题
-  function isObjective(q){ return q && ['single','multi','multiple','judge'].includes(q.type); }
+  // 有选项的题（税务师计算/综合题均为选择题）同样按客观题处理：渲染选项并自动判分；
+  // 无标准答案（verified=false）的题交卷后标记「待校验」，不判对错
+  function isObjective(q){
+    if(!q) return false;
+    if(['single','multi','multiple','judge'].includes(q.type)) return true;
+    const opts = q.options;
+    if(opts && typeof opts === 'object' && Object.keys(opts).length) return true;
+    return false;
+  }
   function isSubjective(q){ return q && !isObjective(q); }
   // 错题判定：客观题自动判定；主观题仅当用户手动判为 wrong 时才计入错题
   // 错题/正确判定：以「历史所有练习会话中的最近一次作答」为准，
@@ -135,6 +143,7 @@
     'practice_state_': 'drafts',
     'motto_text': 'motto',
     'motto_history': 'motto',
+    'qa_list': 'qa',
   };
   function __fileOfKey__(k){
     for(const p in __FILE_MAP__){ if(k.indexOf(p) === 0) return __FILE_MAP__[p]; }
@@ -142,7 +151,7 @@
   }
   // 旧版数据 key 用中文科目名做后缀（如 sessions_会计），新统一为科目 id（sessions_accounting）
   const SUBJ_NAME_TO_ID = { '会计':'accounting','审计':'auditing','财管':'finance','税法':'tax','经济法':'economics','战略':'strategy' };
-  const __fileCache__ = { history:{}, wrong:{}, favorites:{}, error_corrected:{}, notes:{}, answers:{}, drafts:{}, motto:{} };
+  const __fileCache__ = { history:{}, wrong:{}, favorites:{}, error_corrected:{}, notes:{}, answers:{}, drafts:{}, motto:{}, qa:{} };
   let __dirty__ = {};
   let __flushTimer__ = null;
   function __flushAll__(keepalive){
@@ -152,7 +161,7 @@
       const subj = getSubject();
       const failed = [];
       const promises = files.map(f => {
-        const saveSubj = (f === 'motto') ? 'global' : subj;
+        const saveSubj = (f === 'motto' || f === 'qa') ? 'global' : subj;
         return (window.SupaStore || window.CloudStore).saveFile(saveSubj, f, __fileCache__[f] || {})
           .catch(() => { failed.push(f); });
       });
@@ -188,7 +197,7 @@
     const promises = files.map(f => {
       try{
         const body = JSON.stringify(__fileCache__[f] || {}, null, 2);
-        const url = (f === 'motto') ? '/api/data/motto.json' : ('/api/data/' + getSubject() + '/' + f + '.json');
+        const url = (f === 'motto' || f === 'qa') ? ('/api/data/' + f + '.json') : ('/api/data/' + getSubject() + '/' + f + '.json');
         return fetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body: body, keepalive: !!keepalive })
           .then(r => { if(!r.ok) failed.push(f); })
           .catch(() => { failed.push(f); });
@@ -835,9 +844,17 @@
     if(cur && Object.keys(cur.answers || {}).length) archiveCurrentSession();
     const sess = newSession(mode, chapter, section);
     setCurrentSession(sess);
-    // 清空当前实时答案 + 本节旧状态，让新训练从零开始（历史作答不覆盖、不预填）
-    try{ store.set(globalAnswersKey(), JSON.stringify({})); }catch(e){}
-    try{ store.remove(stateKey()); }catch(e){}
+    // 清空当前实时答案 + 本节旧状态，让新训练从零开始（历史作答不覆盖、不预填）。
+    // 但章节训练「同章节未交卷」状态必须保留：刷新/重进时 current_session 可能因
+    // 历史残留会话（如已交卷的旧套卷会话）判定不匹配而走 newSession，若此处清空
+    // stateKey，会丢掉用户交卷前的作答。同章节保留，由 loadState 恢复续做。
+    const sk = stateKey();
+    const scopePrefix = 'practice_state_' + chapter + '__' + (section || '');
+    const keepChapterState = (mode === 'chapter') && (sk === scopePrefix);
+    if(!keepChapterState){
+      try{ store.set(globalAnswersKey(), JSON.stringify({})); }catch(e){}
+      try{ store.remove(stateKey()); }catch(e){}
+    }
     return sess;
   }
   // 合并所有【已交卷】session 的答案，返回 { [uid]: 最近一次作答 }
@@ -914,8 +931,10 @@
       if(ptype === 'comp') return '综合题';
       return '主观题';
     }
+    if(type === 'calc') return '计算题';
+    if(type === 'comprehensive') return '综合分析题';
     return type === 'single' ? '单项选择题' : type === 'multi' ? '多项选择题' : type === 'judge' ? '判断题' :
-           type === 'analysis' ? '分析题' : type === 'comprehensive' ? '综合题' : type || '其他题型';
+           type === 'analysis' ? '分析题' : type || '其他题型';
   }
   function countType(qs, type){ return qs.filter(q => q.type === type).length; }
 
@@ -1321,6 +1340,15 @@
   let chapterFilterState = 'all'; // 章节训练页分段筛选：all / not_started / done / has_wrong
   let historyModeFilter = 'all';  // 练习历史页模式筛选：all / chapter / wrong_random / imported
   let historyDateFilter = 'today'; // 练习历史页日期筛选：today / all
+  // 章节是否含「真实小节」：sections 的 key 若全部为题型分类（"一、单项选择题"等）→ 视为无小节（整章刷）
+  function chapterHasSections(ch){
+    const TYPE_KW = ['单项选择题','多项选择题','判断题','不定项选择题','计算分析题','综合分析题','案例分析题','计算题','综合题','简答题','问答题'];
+    const keys = Object.keys(ch.sections || {});
+    if(!keys.length) return false;
+    // key 含题型关键词（如"一、单项选择题"或"综合分析题"）→ 视为题型分类而非真实小节
+    return !keys.every(k => TYPE_KW.some(w => k.indexOf(w) >= 0));
+  }
+
   function renderChapters(){
     const list = document.querySelector('.ch-list');
     if(!list) return;
@@ -1343,8 +1371,10 @@
       // 章节进度/正确率/有错题统一以【已交卷历史】的最近作答为准（不含未交卷/进行中作答），
       // 配合「只有交卷才生成历史」的规则：刷过的关要交卷才会累计进度，未交卷不积累。
       const scope = chTitle + '||' + secTitle;
-      const hasSubmitted = submittedScopes.has(scope);
-      const hasOngoing = ongoingScopes.has(scope);
+      // 无小节章整章统计：匹配本章任意小节的交卷/进行中历史（兼容改造前的旧数据）
+      const matchScope = (set) => set.has(scope) || (secTitle === '' && Array.from(set).some(s => s.indexOf(chTitle + '||') === 0));
+      const hasSubmitted = matchScope(submittedScopes);
+      const hasOngoing = matchScope(ongoingScopes);
       const questions = sec.questions || [];
       const realTotal = questions.length;
       const isEmpty = realTotal === 0;
@@ -1387,8 +1417,12 @@
     let chIdx = 0;
     Object.entries(APP.chapters || {}).forEach(([chTitle, ch], ci) => {
       const allSections = Object.entries(ch.sections || {});
-      // 预计算每个关卡的进度，并按当前筛选条件过滤（空关仅在「全部章节」下展示）
-      const infos = allSections.map(([secTitle, sec]) => ({ secTitle, sec, prog: calcProgress(chTitle, secTitle, sec) }));
+      const hasSec = chapterHasSections(ch);
+      // 无小节章（sections 仅为题型分类）：整章合并为单一关卡，章即做题入口，不渲染题型子卡片
+      const infos = hasSec
+        ? allSections.map(([secTitle, sec]) => ({ secTitle, sec, prog: calcProgress(chTitle, secTitle, sec) }))
+        : [{ secTitle: '', sec: { questions: allSections.reduce((a, [, s]) => a.concat(s.questions || []), []) }, prog: null }];
+      if(!hasSec) infos[0].prog = calcProgress(chTitle, '', infos[0].sec);
       const visible = filter === 'all'
         ? infos
         : infos.filter(it => !it.prog.isEmpty && (
@@ -1402,10 +1436,8 @@
       chIdx++;
       let chRealTotal = 0, chDoneDisplay = 0, chRealDone = 0, chRealCorrect = 0, chVDone = 0, chVCorrect = 0;
       let subHtml = '';
-      visible.forEach(({ secTitle, sec, prog }) => {
+      if(hasSec){ visible.forEach(({ secTitle, sec, prog }) => {
         const { total, done, realDone, correct, accuracy, vDone, vCorrect, isEmpty, hasWrong, hasSubmitted, hasOngoing } = prog;
-        // 章节头汇总只统计可见（非空）关卡，避免空关的导入进度放大数字
-        chRealTotal += total; chDoneDisplay += done; chRealDone += realDone; chRealCorrect += correct; chVDone += vDone; chVCorrect += vCorrect;
         const pct = total ? Math.round(done / total * 100) : 0;
         // 空关：没有实际题目数据，不点亮星级，按钮置灰
         const stars = isEmpty ? '☆☆☆' : starRating(accuracy, done);
@@ -1429,6 +1461,12 @@
           </div>
         `;
       });
+      }
+      // 章级汇总（无小节章为整章合并项，同样计入）
+      visible.forEach(it => {
+        const p = it.prog;
+        chRealTotal += p.total; chDoneDisplay += p.done; chRealDone += p.realDone; chRealCorrect += p.correct; chVDone += p.vDone; chVCorrect += p.vCorrect;
+      });
       const chHasAccuracy = chVDone > 0;
       const chAccuracy = chHasAccuracy ? (chVCorrect / chVDone * 100) : null;
       const chPct = chRealTotal ? Math.round(chDoneDisplay / chRealTotal * 100) : 0;
@@ -1445,7 +1483,7 @@
       const chOpen = (filter !== 'all') ? true : (chIdx === 1); // 筛选态下默认展开首章，方便查看过滤结果
       html += `
         <div class="ch-item ${chOpen ? 'open' : ''} ${chDoneAll ? 'done' : ''}" id="ch${chIdx}">
-          <button class="ch-head" onclick="toggleCh('ch${chIdx}')">
+          <button class="ch-head" onclick="${hasSec ? "toggleCh('ch" + chIdx + "')" : "location.href='题刷刷.html?chapter=" + encodeURIComponent(chTitle) + "#practice'"}" style="${hasSec ? '' : 'cursor:pointer'}">
             <div class="ch-num">${String(chIdx).padStart(2,'0')}</div>
             <div class="ch-main">
               <div class="ch-title"><span class="ch-title-txt">${escapeHtml(chTitle)}</span><span class="tag tag-gray">基础</span></div>
@@ -1457,7 +1495,7 @@
             </div>
             <div class="ch-rate"><div class="v" style="color:${rateColor}">${rateVal}</div><div class="l">正确率</div></div>
             <div class="ring" style="background:conic-gradient(${ringBg} 0% ${chPct}%,#F1F5F9 0)"><span style="color:${rateColor}">${chPct}%</span></div>
-            <div class="ch-cta"><span class="tag ${chTagCls}">${chTagText}</span><span class="caret"><svg viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg></span></div>
+            <div class="ch-cta"><span class="tag ${chTagCls}">${chTagText}</span>${hasSec ? '<span class="caret"><svg viewBox="0 0 24 24"><path d="M6 9.5l6 6 6-6"/></svg></span>' : ''}</div>
           </button>
           <div class="ch-panel">${subHtml}</div>
         </div>
@@ -2349,6 +2387,116 @@
     setTimeout(() => { closeErrorEditor(); renderErrorCorrected(); }, 900);
   }
 
+  // ============ 自问自答（全局通用模块：不按科目切换，自己提问自己回答） ============
+  function getQA(){
+    try{
+      const raw = store.get('qa_list');
+      if(raw){ const arr = typeof raw === 'string' ? JSON.parse(raw) : raw; if(Array.isArray(arr)) return arr; }
+    }catch(e){}
+    return [];
+  }
+  function saveQA(arr){
+    try{ store.set('qa_list', JSON.stringify(arr)); }catch(e){}
+  }
+  let qaQuery = '';
+  function qaDateStr(ts){
+    if(!ts) return '—';
+    const d = new Date(ts);
+    const p2 = n => String(n).padStart(2,'0');
+    return d.getFullYear() + '-' + p2(d.getMonth()+1) + '-' + p2(d.getDate()) + ' ' + p2(d.getHours()) + ':' + p2(d.getMinutes());
+  }
+  function renderQA(){
+    const root = document.getElementById('view-root');
+    if(!root || !root.querySelector('#qa-list')) return;
+    const list = getQA().slice().sort((a,b) => (b.updatedAt || b.createdAt || 0) - (a.updatedAt || a.createdAt || 0));
+    const q = (qaQuery || '').trim().toLowerCase();
+    let shown = list;
+    if(q) shown = shown.filter(x => (x.question||'').toLowerCase().includes(q) || (x.answer||'').toLowerCase().includes(q));
+    const cntEl = document.getElementById('qa-count');
+    if(cntEl) cntEl.innerHTML = '共 <b>' + list.length + '</b> 条';
+    const sumEl = document.getElementById('qa-summary');
+    if(sumEl) sumEl.textContent = list.length ? (shown.length + ' 条问答 · 点击卡片可展开/收起完整回答') : '暂无问答';
+    const grid = document.getElementById('qa-list');
+    if(!shown.length){
+      const emptyMsg = q ? '没有找到包含「' + escapeHtml(qaQuery.trim()) + '」的问答' : '还没有自问自答。<br>遇到拿不准的问题，先把问题记下来，想明白后再补上自己的回答。';
+      grid.innerHTML = '<div class="qa-empty"><div class="qe-ico"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-3.9-6.9"/><path d="M20 4v4h-4"/><path d="M9.6 9.4l1.8 1.8 3.4-3.4"/></svg></div><p>' + emptyMsg + '</p>' + (!q ? '<button class="btn btn-primary" id="btn-qa-add-inline" type="button">＋ 提第一个问题</button>' : '') + '</div>';
+      const inline = grid.querySelector('#btn-qa-add-inline');
+      if(inline) inline.addEventListener('click', () => openQAEditor());
+      return;
+    }
+    grid.innerHTML = shown.map(x => {
+      const time = qaDateStr(x.updatedAt || x.createdAt);
+      const noAns = !(x.answer && String(x.answer).trim());
+      return '<div class="qa-card' + (noAns ? ' qa-card--noanswer' : '') + '" data-id="' + x.id + '" tabindex="0">' +
+        '<div class="qa-q"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9.2"/><path d="M9.6 9.2a2.5 2.5 0 1 1 3.4 2.3c-.8.3-1 .9-1 1.6"/><path d="M12 16.6v.2"/></svg>' + escapeHtml(x.question || '（未填写问题）') + '</div>' +
+        '<div class="qa-a">' + (x.answer ? escapeHtml(x.answer) : '<span class="qa-a-empty">（还没有回答，点击编辑补充）</span>') + '</div>' +
+        '<div class="qa-foot">' +
+          '<span class="qa-time">更新于 ' + time + '</span>' +
+          '<div class="qa-ops">' +
+            '<button data-act="edit" data-id="' + x.id + '" title="编辑" aria-label="编辑"><svg viewBox="0 0 24 24"><path d="M4.4 19.6h4L18.2 9.8l-4-4L4.4 15.6z"/><path d="M14.2 5.8 18.2 9.8"/></svg></button>' +
+            '<button class="qa-del" data-act="del" data-id="' + x.id + '" title="删除" aria-label="删除"><svg viewBox="0 0 24 24"><path d="M5 7h14M9.5 7V4.8h5V7M7.5 7l.9 12h7.2l.9-12"/><path d="M10.2 11v5M13.8 11v5"/></svg></button>' +
+          '</div>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+    grid.querySelectorAll('.qa-card').forEach(card => {
+      card.addEventListener('click', (e) => {
+        if(e.target.closest('.qa-ops')) return; // 操作按钮不触发展开
+        card.classList.toggle('open');
+      });
+    });
+    grid.querySelectorAll('.qa-card [data-act="edit"]').forEach(b => b.addEventListener('click', (e) => { e.stopPropagation(); openQAEditor(b.getAttribute('data-id')); }));
+    grid.querySelectorAll('.qa-card [data-act="del"]').forEach(b => b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const id = b.getAttribute('data-id');
+      const item = getQA().find(x => x.id === id);
+      if(item && confirm('删除这条问答？\n「' + (item.question||'').slice(0,30) + '」')) qaDelete(id);
+    }));
+  }
+  function openQAEditor(id){
+    const mask = document.getElementById('qa-editor');
+    if(!mask) return;
+    const list = getQA();
+    let editing = null;
+    if(id){
+      editing = list.find(x => x.id === id) || null;
+      if(!editing) return;
+    }
+    mask._editingId = editing ? editing.id : null;
+    document.getElementById('qa-editor-title').textContent = editing ? '编辑问答' : '新建自问自答';
+    document.getElementById('qa-question').value = editing ? (editing.question||'') : '';
+    document.getElementById('qa-answer').value = editing ? (editing.answer||'') : '';
+    mask.style.display = 'flex';
+    document.getElementById('qa-question').focus();
+  }
+  function closeQAEditor(){
+    const mask = document.getElementById('qa-editor');
+    if(mask) mask.style.display = 'none';
+  }
+  function saveQAEditor(){
+    const mask = document.getElementById('qa-editor');
+    if(!mask) return;
+    const question = document.getElementById('qa-question').value.trim();
+    const answer = document.getElementById('qa-answer').value.replace(/\r\n/g,'\n').trim();
+    if(!question && !answer){ closeQAEditor(); return; }
+    const now = Date.now();
+    const list = getQA();
+    const editingId = mask._editingId;
+    if(editingId){
+      const it = list.find(x => x.id === editingId);
+      if(it){ it.question = question; it.answer = answer; it.updatedAt = now; }
+    } else {
+      list.unshift({ id: 'qa_' + now + '_' + Math.random().toString(36).slice(2,6), question: question, answer: answer, createdAt: now, updatedAt: now });
+    }
+    saveQA(list);
+    closeQAEditor();
+    renderQA();
+  }
+  function qaDelete(id){
+    saveQA(getQA().filter(x => x.id !== id));
+    renderQA();
+  }
+
   // ============ 学习笔记（记录知识点 + 卡片抽查） ============
   function notesKey(){ return 'notes_' + getSubject(); }
   function getNotes(){
@@ -2586,6 +2734,24 @@
     const mask = document.getElementById('note-quiz');
     if(mask){ mask.style.display = 'none'; buildQuizInner(); }
     renderNotes();
+  }
+
+  function initQAUI(){
+    // 搜索 + 新建/保存/取消（document 级事件委托，模板延迟渲染）
+    document.addEventListener('input', e => {
+      const t = e.target;
+      if(t && t.id === 'qa-search'){
+        qaQuery = t.value;
+        renderQA();
+      }
+    });
+    document.addEventListener('click', e => {
+      const t = e.target;
+      if(t.closest && t.closest('#btn-qa-add')){ openQAEditor(); return; }
+      if(t.closest && t.closest('#btn-qa-save')){ saveQAEditor(); return; }
+      if(t.closest && t.closest('#btn-qa-cancel')){ closeQAEditor(); return; }
+      if(t.closest && t.closest('#qa-editor') && !t.closest('.modal')){ closeQAEditor(); return; }
+    });
   }
 
   function initNotesUI(){
@@ -2941,7 +3107,7 @@
         tbTitle.innerHTML = escapeHtml(practiceChapter) + ' · <b>' + paperLabel + '</b>';
       } else {
         const secShort = practiceSection.replace(/^第\d+关\s*/, '');
-        tbTitle.innerHTML = escapeHtml(practiceChapter) + ' · <b>' + escapeHtml(secShort) + '</b> · 章节训练';
+        tbTitle.innerHTML = escapeHtml(practiceChapter) + (secShort ? ' · <b>' + escapeHtml(secShort) + '</b>' : '') + ' · 章节训练';
       }
     }
     // 顶部黑底栏面包屑（参照冲刺模拟：学习中心 / 科目 / 模式 / 位置）
@@ -3224,7 +3390,7 @@
 
   function renderInfoCard(){
     setText('info-chapter', practiceChapter || '—');
-    setText('info-section', practiceIsWrongRandom ? '随机抽题' : (practiceIsExam ? ('限时 ' + Math.round(practiceExamDuration / 60) + ' 分钟') : (practiceSection ? practiceSection.replace(/^第\d+关\s*/, '') : '—')));
+    setText('info-section', practiceIsWrongRandom ? '随机抽题' : (practiceIsExam ? ('限时 ' + Math.round(practiceExamDuration / 60) + ' 分钟') : (practiceSection ? practiceSection.replace(/^第\d+关\s*/, '') : (practiceChapter ? '整章' : '—'))));
     setText('info-total', practiceQuestions.length + ' 题');
     setText('info-elapsed', fmtSec(practiceState.elapsed));
     setText('info-done', countAnswered() + ' / ' + practiceQuestions.length);
@@ -3267,7 +3433,8 @@
       { key: 'single', label: '单项选择题' },
       { key: 'multi', label: '多项选择题' },
       { key: 'judge', label: '判断题' },
-      { key: 'calc', label: '计算分析题' },
+      { key: 'calc', label: getExam() === 'taxp' ? '计算题' : '计算分析题' },
+      { key: 'comprehensive', label: getTypeLabel('comprehensive') },
       { key: 'case', label: '案例分析题' },
       { key: 'comp', label: '综合题' },
       { key: 'sub', label: '主观题' }
@@ -3380,7 +3547,9 @@
     const q = practiceQuestions[currentIndex];
     if(!q) return;
     setText('pr-qno', qNo(q, currentIndex));
-    setText('pr-type', getTypeLabel(q.type, q.ptype));
+    // 整章刷（无小节章，无 section 参数）：按题型分段展示——类型标签显示完整题型段名
+    const isWholeChapter = !!practiceChapter && !practiceSection && !practiceIsWrongRandom && !practiceIsExam && !practicePaperId;
+    setText('pr-type', isWholeChapter ? ((q.section || '').replace(/^第\d+关\s*/, '') || getTypeLabel(q.type, q.ptype)) : getTypeLabel(q.type, q.ptype));
     setText('pr-meta', (q.chapter || '') + ' · ' + (q.section || '').replace(/^第\d+关\s*/, ''));
     const stem = document.getElementById('pr-stem');
     if(stem) stem.innerHTML = fmtRich(q.stem);
@@ -3418,7 +3587,14 @@
 
     renderOptions(q);
     renderFoot();
-    setText('pr-pos', qNo(practiceQuestions[currentIndex], currentIndex) + ' / ' + practiceQuestions.length);
+    if(isWholeChapter){
+      // 整章刷：位置显示「段内 x/n · 全章 m 题」，段落随题型切换
+      const segN = practiceQuestions.filter(o => o.section === q.section).length;
+      const segPos = practiceQuestions.slice(0, currentIndex + 1).filter(o => o.section === q.section).length;
+      setText('pr-pos', segPos + ' / ' + segN + ' · 全章 ' + practiceQuestions.length + ' 题');
+    } else {
+      setText('pr-pos', qNo(practiceQuestions[currentIndex], currentIndex) + ' / ' + practiceQuestions.length);
+    }
     renderRightSections(q);
     updateProgress();
   }
@@ -3509,8 +3685,9 @@
     const ua = practiceState.answers[currentIndex] || '';
     const uaSet = new Set(ua.toUpperCase().split(''));
     optsEl.classList.toggle('locked', practiceSubmitted);
-    optsEl.classList.toggle('type-multi', q.type === 'multi');
-    optsEl.classList.toggle('type-single', q.type === 'single');
+    const isMultiQ = q.type === 'multi' || q.type === 'multiple' || (q.answer && String(q.answer).trim().length > 1);
+    optsEl.classList.toggle('type-multi', isMultiQ);
+    optsEl.classList.toggle('type-single', q.type === 'single' || !isMultiQ);
     // 主观题无 options，显示作答文本框
     if(isSubjective(q)){
       optsEl.innerHTML = '<div class="subjective-input"><label style="font-size:13px;color:var(--color-text-secondary);display:block;margin-bottom:8px">主观题作答区</label>' +
@@ -3729,6 +3906,8 @@
   function questionMaxScore(q){
     if(Number(q.score) > 0) return Number(q.score);
     if(q.type === 'multi' || q.type === 'multiple') return 2;
+    // 有选项的计算/综合题（税务师计算题/综合题均为选择题）：每题 2 分
+    if((q.type === 'calc' || q.type === 'comprehensive') && isObjective(q)) return 2;
     return 1;
   }
 
@@ -3780,7 +3959,7 @@
     const q = practiceQuestions[currentIndex];
     if(!q || !optKey) return;
     let ua = practiceState.answers[currentIndex] || '';
-    if(q.type === 'single' || q.type === 'judge'){
+    if(q.type === 'single' || q.type === 'judge' || (q.answer && String(q.answer).trim().length <= 1)){
       ua = (ua === optKey ? '' : optKey); // 单选再次点击同项可取消
     } else {
       const set = new Set(ua.toUpperCase().split(''));
@@ -4422,10 +4601,11 @@
         const subj = getSubject();
         const map = await (window.SupaStore || window.CloudStore).loadAll(subj);
         ['history','wrong','favorites','error_corrected','notes','answers'].forEach(f => { __fileCache__[f] = (map && map[f]) || {}; });
-        // motto 是全局文件，从 global 命名空间单独加载
+        // motto/qa 是全局文件，从 global 命名空间单独加载
         try{
           const mottoMap = await (window.SupaStore || window.CloudStore).loadAll('global');
           __fileCache__['motto'] = (mottoMap && mottoMap['motto']) || {};
+          __fileCache__['qa'] = (mottoMap && mottoMap['qa']) || {};
         }catch(e){}
         // 首次上云：把本机旧 localStorage 业务记录并入云端命名空间，随后写入（避免丢历史）
         try{
@@ -4437,7 +4617,7 @@
               if(v != null){ try{ __fileCache__[f][k] = JSON.parse(v); }catch(e){ __fileCache__[f][k] = v; } }
             }
           }
-          __scheduleFlush__('history'); __scheduleFlush__('wrong'); __scheduleFlush__('favorites'); __scheduleFlush__('error_corrected'); __scheduleFlush__('notes'); __scheduleFlush__('answers'); __scheduleFlush__('motto');
+          __scheduleFlush__('history'); __scheduleFlush__('wrong'); __scheduleFlush__('favorites'); __scheduleFlush__('error_corrected'); __scheduleFlush__('notes'); __scheduleFlush__('answers'); __scheduleFlush__('motto'); __scheduleFlush__('qa');
         }catch(e){}
         showCloudStatus('ok');
         return; // 题库来自 bank_*.js（IIFE 初始化），无需 /api
@@ -4494,6 +4674,10 @@
       try{
         const mr = await fetch('/api/data/motto.json', { cache:'no-store' });
         if(mr.ok){ __fileCache__['motto'] = await mr.json(); }
+      }catch(e){}
+      try{
+        const qr = await fetch('/api/data/qa.json', { cache:'no-store' });
+        if(qr.ok){ __fileCache__['qa'] = await qr.json(); }
       }catch(e){}
       // 2) 题库（按当前科目目录）
       const [cd, pp, ip] = await Promise.all([
@@ -5450,6 +5634,9 @@
     let list = [];
     if(s.chapter && s.section){
       list = qsrc.filter(q => q.chapter === s.chapter && q.section === s.section);
+    } else if(s.chapter && !s.section && s.mode === 'chapter'){
+      // 整章刷（无小节章）：查看解析显示整章全部题
+      list = qsrc.filter(q => q.chapter === s.chapter);
     } else {
       list = qsrc.filter(q => q._uid && s.answers && s.answers[q._uid] != null);
     }
@@ -5615,6 +5802,7 @@ const VIEW_MAP = {
   history:   { render: () => { renderPracticeHistory(); }, title: '练习历史' },
   review:    { render: () => { renderHistoryReview(); }, title: '复盘' },
   note:      { render: () => { renderNotes(); }, title: '学习笔记' },
+  qa:        { render: () => { renderQA(); }, title: '自问自答' },
 };
 function getCurrentView(){
   const h = (location.hash || '').replace(/^#/, '').split('?')[0];
@@ -5662,6 +5850,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   clearOrphanStateOnce();
   initBackupUI();
   initNotesUI();
+  initQAUI();
   migrateImportedAnswers();
   // hasData 以 /api/meta 动态结果为准（本地服务器模式）；仅当 /api 不可用（线上静态/云端/file://）才用 bank_*.js 兜底重算
   if(!window.__META_OK__){ initFileModeSubjects(); }
