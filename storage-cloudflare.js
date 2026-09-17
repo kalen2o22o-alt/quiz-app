@@ -9,7 +9,7 @@
   var cfg = window.__CLOUDFLARE_CONFIG__;
   if(!cfg){ return; }
   var apiBase = String(cfg.apiBase || '').replace(/\/+$/, ''); // 留空 = 与前端同域 /api
-  var FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'motto']; // drafts 仅本地，不同步云端
+  var FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'motto', 'qa']; // drafts 仅本地，不同步云端；qa=自问自答（全局命名空间）
   var nsSeed = ''; // 口令哈希命名空间前缀（不知道口令就无法定位行）
 
   function simpleHash(str){

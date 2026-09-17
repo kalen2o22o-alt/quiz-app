@@ -60,7 +60,7 @@ export async function onRequest(context) {
     'Vary': 'Origin',
   };
   const JSON_HEADERS = { ...CORS, 'Content-Type': 'application/json; charset=utf-8' };
-  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'motto']; // drafts 仅本地，不同步云端
+  const FILES = ['history', 'wrong', 'favorites', 'error_corrected', 'notes', 'answers', 'motto', 'qa']; // drafts 仅本地，不同步云端；qa=自问自答（全局命名空间）
   const KVPrefix = 'quiz:';
 
   // ============ 新增：诊断接口 ============
