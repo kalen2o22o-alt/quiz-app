@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
@@ -810,6 +810,9 @@ body.resizing-split,body.resizing-split *{cursor:col-resize!important;user-selec
 /* 标记此题 → 题卡橙色边框 + 右上角标 */
 .q-card.is-marked{position:relative;border-color:#F59E0B;box-shadow:0 0 0 1px #F59E0B,var(--shadow-raised)}
 .q-card.is-marked::after{content:"已标记";position:absolute;top:0;right:0;background:#B45309;color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:0 var(--radius-card) 0 var(--radius-btn);letter-spacing:.5px}
+/* 疑点题（导入 JSON suspect 字段）→ 题卡红色角标，优先级高于已标记 */
+.q-card.is-suspect{position:relative;border-color:#DC2626;box-shadow:0 0 0 1px #DC2626,var(--shadow-raised)}
+.q-card.is-suspect::after{content:"⚠ 疑点";position:absolute;top:0;right:0;background:#DC2626;color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:0 var(--radius-card) 0 var(--radius-btn);letter-spacing:.5px;z-index:2}
 
 /* 多选题选项：方形 checkbox（单选保持圆形） */
 .type-multi .opt .k{border-radius:6px}
@@ -1905,6 +1908,9 @@ button{font-family:inherit;cursor:pointer;border:0;background:none;color:inherit
 /* 标记此题 → 题卡橙色边框 + 右上角标 */
 .q-card.is-marked{position:relative;border-color:#F59E0B;box-shadow:0 0 0 1px #F59E0B,var(--shadow-raised)}
 .q-card.is-marked::after{content:"已标记";position:absolute;top:0;right:0;background:#B45309;color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:0 var(--radius-card) 0 var(--radius-btn);letter-spacing:.5px}
+/* 疑点题（导入 JSON suspect 字段）→ 题卡红色角标，优先级高于已标记 */
+.q-card.is-suspect{position:relative;border-color:#DC2626;box-shadow:0 0 0 1px #DC2626,var(--shadow-raised)}
+.q-card.is-suspect::after{content:"⚠ 疑点";position:absolute;top:0;right:0;background:#DC2626;color:#fff;font-size:10px;font-weight:700;padding:3px 9px;border-radius:0 var(--radius-card) 0 var(--radius-btn);letter-spacing:.5px;z-index:2}
 
 /* 多选题选项：方形 checkbox（单选保持圆形） */
 .type-multi .opt .k{border-radius:6px}
@@ -2163,15 +2169,15 @@ a:hover{color:var(--color-primary-deep)}
 .motto-pop{position:fixed;left:8px;top:80px;z-index:900;width:340px;background:#fff;border:1px solid var(--color-border);border-radius:12px;box-shadow:var(--shadow-floating);padding:14px;display:none}
 .motto-pop.show{display:block}
 .motto-pop h4{font-size:13px;font-weight:700;margin-bottom:10px;color:var(--color-text-primary)}
-.motto-pop .in-row{display:flex;gap:8px}
+.motto-pop .in-row{display:flex;gap:8px;align-items:flex-start}.motto-pop .in-row textarea{flex:1;min-width:0;padding:8px 10px;border:1px solid var(--color-border);border-radius:8px;font-size:14px;font-family:inherit;line-height:1.5;resize:vertical}
 .motto-pop input{flex:1;height:34px;border:1px solid var(--color-border);border-radius:8px;padding:0 10px;font-size:13px;outline:none}
 .motto-pop input:focus{border-color:var(--color-primary)}
 .motto-pop .ok-btn{height:34px;padding:0 14px;border:none;border-radius:8px;background:var(--color-secondary);color:#fff;font-size:13px;cursor:pointer}
 .motto-pop .hist{margin-top:10px;max-height:220px;overflow:auto}
-.motto-pop .hitem{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px}
+.motto-pop .hitem{display:flex;align-items:flex-start;gap:8px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13px}
 .motto-pop .hitem:hover{background:var(--color-surface-muted)}
 .motto-pop .hitem .d{font-size:11px;color:var(--color-text-secondary);font-family:var(--num);flex:none}
-.motto-pop .hitem .t{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.motto-pop .hitem .t{flex:1;min-width:0;white-space:normal;word-break:break-word;line-height:1.5}
 .motto-pop .hitem .del{border:none;background:none;color:var(--color-text-secondary);cursor:pointer;font-size:12px;font-family:inherit}
 .motto-pop .hitem .del:hover{color:var(--color-danger)}
 .motto-pop .mh-empty{font-size:12px;color:var(--color-text-secondary);padding:6px 4px}
@@ -3821,7 +3827,7 @@ body.mode-practice .stem::-webkit-scrollbar-thumb{background:rgba(192,59,43,.25)
 <script src="bank_papers.js" defer></script>
 <script src="bank_intensive.js" defer></script>
 <script src="mammoth.browser.min.js" defer></script>
-<script src="renderer.js" defer></script>
+<script src="renderer.js?v=20260920b" defer></script>
 <!-- ===== 移动端导航逻辑（≤767px 汉堡 + 抽屉） ===== -->
 <script>
 (function(){
@@ -3955,6 +3961,7 @@ body.mode-practice .card-b .legend{justify-content:center !important}
   .rb-new-box{flex:1;position:relative;display:flex;align-items:center}
   .rb-new-plus{position:absolute;left:50%;transform:translateX(-50%);color:var(--color-text-tertiary);font-size:16px;pointer-events:none;line-height:1}
   .rb-new-input{flex:1;border:none;outline:none;background:transparent;font-size:14px;font-family:inherit;color:var(--color-text-primary);padding:2px 0;width:100%}
+.rb-new-input{resize:vertical;min-height:28px;line-height:1.6}
   .rb-new-save{width:24px;height:24px;padding:0;border:1px solid var(--color-border);border-radius:8px;background:#fff;color:var(--color-text-tertiary);font-size:13px;cursor:pointer;font-family:inherit;flex:none;transition:.15s;display:flex;align-items:center;justify-content:center}
   .rb-new-save:hover{color:var(--color-success);border-color:var(--color-success)}
   .rb-row-input{flex:1;border:1px solid var(--color-primary);border-radius:8px;padding:4px 8px;font-size:14px;font-family:inherit;outline:none;background:#fff;color:var(--color-text-primary)}

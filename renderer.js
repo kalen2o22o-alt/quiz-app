@@ -1067,7 +1067,7 @@
     p.id = id;
     p.className = id;
     if(id === 'motto-pop'){
-      p.innerHTML = '<h4>每日励志语录</h4><div class="in-row"><input id="motto-input" maxlength="50" placeholder="写一句今天的自我激励…"/><button class="ok-btn" id="lc-motto-save">保存</button></div><div class="hist" id="motto-hist"></div>';
+      p.innerHTML = '<h4>每日励志语录</h4><div class="in-row"><textarea id="motto-input" rows="2" placeholder="写一句今天的自我激励或感悟…（不限字数）"></textarea><button class="ok-btn" id="lc-motto-save">保存</button></div><div class="hist" id="motto-hist"></div>';
       document.body.appendChild(p);
       const ms = document.getElementById('lc-motto-save');
       if(ms) ms.addEventListener('click', () => { const inp = document.getElementById('motto-input'); if(inp) mottoSave(inp.value); });
@@ -1245,7 +1245,7 @@
           + '<button class="rb-row-del" data-t="' + zesc(o.text) + '" type="button" title="删除语录">' + TRASH + '</button>'
           + '</div>';
       }).join('')
-      + '<div class="rb-row rb-newrow"><span class="rb-new-space"></span><div class="rb-new-box"><span class="rb-new-plus">＋</span><input class="rb-new-input" type="text" maxlength="50"></div><button class="rb-new-save" type="button" title="保存新增语录">✓</button></div>'
+      + '<div class="rb-row rb-newrow"><span class="rb-new-space"></span><div class="rb-new-box"><span class="rb-new-plus">＋</span><textarea class="rb-new-input" rows="2"></textarea></div><button class="rb-new-save" type="button" title="保存新增语录">✓</button></div>'
       + '</div>';
     grid.querySelectorAll('.rb-check input').forEach(cb => cb.addEventListener('change', () => {
       if(cb.checked){ mottoSave(cb.getAttribute('data-t')); renderRedBook(); }
@@ -1259,7 +1259,7 @@
       if(!txt) return;
       const old = b.getAttribute('data-t');
       const inp = document.createElement('input');
-      inp.type = 'text'; inp.maxLength = 50; inp.className = 'rb-row-input'; inp.value = old;
+      inp.type = 'text'; inp.className = 'rb-row-input'; inp.value = old;
       txt.replaceWith(inp);
       inp.focus();
       let done = false;
@@ -3581,9 +3581,9 @@
     if(btnStar) btnStar.classList.toggle('on-star', !!practiceState.starred[currentIndex]);
     const btnError = document.getElementById('btn-error');
     if(btnError) btnError.classList.toggle('on-error', !!(practiceState.errorCorrected && practiceState.errorCorrected[currentIndex]));
-    // 标记此题 → 题卡橙色边框 + 角标
+    // 标记此题 → 题卡橙色边框 + 角标；疑点题（suspect）→ 红色角标
     const qcard = document.querySelector('.q-card');
-    if(qcard) qcard.classList.toggle('is-marked', !!practiceState.marked[currentIndex]);
+    if(qcard){ qcard.classList.toggle('is-marked', !!practiceState.marked[currentIndex]); qcard.classList.toggle('is-suspect', !!q.suspect); }
 
     renderOptions(q);
     renderFoot();
@@ -5341,7 +5341,7 @@
         verdictHtml = '<div class="' + vcls + '"><span class="ic">' + ic + '</span><div><div class="t">' + vt + '</div><div class="d">' + vd + '</div></div><div class="sp">' + vsp + '</div></div>';
       }
       let stem = (q.stem || '').replace(/^\s*\d+\s*[、.]\s*/, '');
-      html += '<article class="q-card hist-q">' +
+      html += '<article class="q-card hist-q' + (q.suspect ? ' is-suspect' : '') + '">' +
         '<div class="q-head"><span class="q-no">' + qNo(q, n - 1) + '</span>' +
           '<span class="tag tag-gray">' + shortTypeLabel(q) + '</span>' +
           (ans ? '<span class="meta">你的答案 <b>' + escapeHtml(ans) + '</b></span>' : '<span class="meta">未作答</span>') +
@@ -5707,7 +5707,7 @@
         verdictHtml = '<div class="' + vcls + '"><span class="ic">' + ic + '</span><div><div class="t">' + vt + '</div><div class="d">' + vd + '</div></div><div class="sp">' + vsp + '</div></div>';
       }
       let stem = (q.stem || '').replace(/^\s*\d+\s*[、.]\s*/, '');
-      flowHtml += '<article class="q-card hist-q" id="q-idx-' + n + '">' +
+      flowHtml += '<article class="q-card hist-q' + (q.suspect ? ' is-suspect' : '') + '" id="q-idx-' + n + '">' +
         '<div class="q-head"><span class="q-no">' + qNo(q, n - 1) + '</span>' +
           '<span class="tag tag-gray">' + shortTypeLabel(q) + '</span>' +
           (ans ? '<span class="meta">你的答案 <b>' + escapeHtml(ans) + '</b></span>' : '<span class="meta">未作答</span>') +
